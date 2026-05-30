@@ -39,10 +39,13 @@ public sealed class NameServerHandler : IOperationHandler
 
     public OperationResponse Authenticate(OperationRequest request)
     {
-        // Identity = the SteamID the client mod sends as the Photon UserId (param 225). Without
-        // the mod (e.g. native LAN) there is none, so we mint a non-authoritative id.
-        var steamId = request.Parameters.TryGetValue(PUserId, out var u) && u is string s && s.Length > 0
-            ? s : Guid.NewGuid().ToString();
+        // Identity = the SteamID the client sends as the Photon UserId (param 225). This is an
+        // ASSERTED identity, not a proven one (any client can send any value) — see SECURITY.md.
+        // We format-validate it as defense-in-depth (rejects junk/GUIDs); a malformed/absent value
+        // falls back to a per-session non-authoritative id. Privilege escalation must NOT be gated
+        // on this until Steam ticket validation is in place (tracked for SP3).
+        var claimed = request.Parameters.TryGetValue(PUserId, out var u) && u is string s ? s : null;
+        var steamId = SteamId.IsValidIndividual(claimed) ? claimed! : Guid.NewGuid().ToString();
 
         var account = _accounts.ResolveOrCreate(steamId, steamId);
         if (account.IsBanned)
