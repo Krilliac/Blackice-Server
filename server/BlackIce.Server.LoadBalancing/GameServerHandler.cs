@@ -20,6 +20,7 @@ public sealed class GameServerHandler : IOperationHandler
     private readonly bool _allowAnonymousLan;
     private readonly AccountService? _accounts;
     private readonly RealmService? _realms;
+    private readonly MotdService? _motd;
 
     /// <param name="allowAnonymousLan">
     /// When true, tokenless auth (LAN mode) is accepted from loopback/private-range peers only.
@@ -27,14 +28,16 @@ public sealed class GameServerHandler : IOperationHandler
     /// </param>
     /// <param name="accounts">Account store for ban enforcement on the resolved SteamID (optional in tests).</param>
     /// <param name="realms">Realm definitions whose ruleset is applied on join (optional in tests).</param>
+    /// <param name="motd">Message of the Day service; when provided the resolved MOTD is stamped as a room property.</param>
     public GameServerHandler(string secret, RoomRegistry registry, bool allowAnonymousLan = false,
-                             AccountService? accounts = null, RealmService? realms = null)
+                             AccountService? accounts = null, RealmService? realms = null, MotdService? motd = null)
     {
         _secret = secret;
         _registry = registry;
         _realms = realms;
         _allowAnonymousLan = allowAnonymousLan;
         _accounts = accounts;
+        _motd = motd;
     }
 
     public void OnConnect(PeerConnection peer) { }
@@ -98,6 +101,9 @@ public sealed class GameServerHandler : IOperationHandler
             gameProps["HackDifficultyIncrease"] = realm.HackDifficultyIncrease;
             gameProps["Password"] = realm.Password;
         }
+
+        var motdText = _motd?.Resolve(realm);
+        if (!string.IsNullOrWhiteSpace(motdText)) gameProps["motd"] = motdText!;
 
         var response = new OperationResponse(r.OperationCode, 0, null, new()
         {
