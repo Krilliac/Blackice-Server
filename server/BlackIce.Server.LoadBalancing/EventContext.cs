@@ -12,9 +12,10 @@ public sealed class EventContext
     public string RoomName { get; }
     public int SenderActor { get; }
     public EventData Event { get; }
+    public bool Unreliable { get; }
 
-    public EventContext(string roomName, int senderActor, EventData ev)
+    public EventContext(string roomName, int senderActor, EventData ev, bool unreliable = false)
     {
-        RoomName = roomName; SenderActor = senderActor; Event = ev;
+        RoomName = roomName; SenderActor = senderActor; Event = ev; Unreliable = unreliable;
     }
 }

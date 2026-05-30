@@ -155,11 +155,19 @@ public sealed class PeerConnection
     /// before being sent. Production leaves this null; relay tests use it to assert fan-out without a socket.</summary>
     public System.Action<EventData>? OnRaised { get; set; }
 
-    public void RaiseEvent(EventData ev)
+    /// <summary>Test/diagnostic hook reporting each raised event AND whether it was sent unreliably.</summary>
+    public System.Action<EventData, bool>? OnRaisedClassified { get; set; }
+
+    public void RaiseEvent(EventData ev) => RaiseEvent(ev, unreliable: false);
+
+    public void RaiseEvent(EventData ev, bool unreliable)
     {
-        Log.Info(_role, $"{Remote} -> raise {PhotonNames.Event(ev.Code)} [{PhotonNames.Params(ev.Parameters)}]");
+        Log.Info(_role, $"{Remote} -> raise {PhotonNames.Event(ev.Code)} ({(unreliable ? "unreliable" : "reliable")}) [{PhotonNames.Params(ev.Parameters)}]");
         OnRaised?.Invoke(ev);
-        SendRaw(WireMessage.EventMessage(ev));
+        OnRaisedClassified?.Invoke(ev, unreliable);
+        var msg = WireMessage.EventMessage(ev);
+        if (unreliable) _send(new[] { _enet.WrapUnreliable(msg) }, _enet.Challenge);
+        else SendRaw(msg);
     }
 
     private void SendRaw(byte[] appMessage) =>

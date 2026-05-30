@@ -27,9 +27,9 @@ public sealed class RoomSession
 
     /// <summary>Runs the interceptor chain over <paramref name="ev"/> and fans the verdict out to
     /// every actor except <paramref name="senderActor"/>.</summary>
-    public void RelayFrom(int senderActor, EventData ev)
+    public void RelayFrom(int senderActor, EventData ev, bool unreliable = false)
     {
-        var verdict = _chain.Run(new EventContext(RoomName, senderActor, ev));
+        var verdict = _chain.Run(new EventContext(RoomName, senderActor, ev, unreliable));
         if (verdict.Action == RelayAction.Drop) return;
 
         List<PeerConnection> recipients;
@@ -42,8 +42,8 @@ public sealed class RoomSession
 
         foreach (var peer in recipients)
         {
-            if (verdict.Event is not null) peer.RaiseEvent(verdict.Event);
-            foreach (var extra in verdict.Originated) peer.RaiseEvent(extra);
+            if (verdict.Event is not null) peer.RaiseEvent(verdict.Event, unreliable);
+            foreach (var extra in verdict.Originated) peer.RaiseEvent(extra, unreliable);
         }
     }
 }
