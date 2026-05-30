@@ -42,7 +42,7 @@ can implement the connect flow without further reversing.
 ## 3. Repository & open-source hygiene
 
 - Repo at `C:\Users\natew\OneDrive\Documentos\blackice-re\`, working name **`BlackIce.Server`**.
-- `git init`; license chosen before first public push (MIT or GPL — TBD with user).
+- `git init`; licensed **GPLv3** (keeps community forks open, TrinityCore-style).
 - **`.gitignore` excludes ALL game-derived material**: original DLLs, decompiled `.cs`,
   Unity asset dumps, raw packet captures. These remain local analysis-only artifacts.
 - `README` + `NOTICE` state this is an independent, clean-room-style interoperability
@@ -108,8 +108,8 @@ All protocol logic is **managed C#** on the Mono runtime; the only native module
   over to debugging the future C# server on a Linux host. Mono `mono-gdb.py` helpers set
   up for managed-aware frames. **Secondary by design** — GDB sees native frames, not
   managed game logic.
-- **Frida** *(optional)* — dynamic instrumentation bridging native + managed for ad-hoc
-  tracing without rebuilding a mod.
+- **Frida** — dynamic instrumentation bridging native + managed for ad-hoc tracing
+  without rebuilding a mod. Part of the standard install set.
 
 **Capture / analysis:** Wireshark/tshark (§4c), `ilspycmd` *(installed)*, System Informer
 (process/handle inspection).
