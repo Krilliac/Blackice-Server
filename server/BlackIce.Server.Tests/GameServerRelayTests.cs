@@ -172,4 +172,79 @@ public class GameServerRelayTests
         p.OnRaisedClassified = (ev, unrel) => captured.Add((ev, unrel));
         return p;
     }
+
+    private static OperationRequest SetProps(Dictionary<object, object> props, int? actorNr, bool? broadcast) =>
+        new(252, BuildSetPropsParams(props, actorNr, broadcast));
+
+    private static Dictionary<byte, object> BuildSetPropsParams(Dictionary<object, object> props, int? actorNr, bool? broadcast)
+    {
+        var p = new Dictionary<byte, object> { { 251, props } };
+        if (actorNr is int nr) p[254] = nr;
+        if (broadcast is bool b) p[250] = b;
+        return p;
+    }
+
+    [Fact]
+    public void Broadcast_set_player_properties_is_relayed_to_other_actor_as_event_253()
+    {
+        var (h, _, db) = NewHandler();
+        using (db)
+        {
+            var a = Peer(out var aRaised); var b = Peer(out var bRaised);
+            h.OnOperationRequest(a, Join());   // actor 1
+            h.OnOperationRequest(b, Join());   // actor 2
+            aRaised.Clear(); bRaised.Clear();
+
+            // Actor 1 broadcasts its appearance/player properties.
+            var props = new Dictionary<object, object> { { "PlayerModelIndex", 4 }, { "BackHoloIconIndex", 2 } };
+            h.OnOperationRequest(a, SetProps(props, actorNr: 1, broadcast: true));
+
+            // The OTHER actor (2) sees an EvPropertiesChanged (253); the sender (1) does not.
+            Assert.Empty(aRaised);
+            var ev = Assert.Single(bRaised);
+            Assert.Equal(253, ev.Code);
+            // Target-actor key (253) identifies whose properties these are.
+            Assert.True(ev.Parameters.TryGetValue(253, out var tgt) && tgt is int t && t == 1);
+            // Properties key (251) carries the changed values.
+            Assert.True(ev.Parameters.TryGetValue(251, out var pp) && pp is System.Collections.IDictionary d
+                && d.Contains("PlayerModelIndex") && (int)d["PlayerModelIndex"]! == 4
+                && d.Contains("BackHoloIconIndex"));
+        }
+    }
+
+    [Fact]
+    public void Broadcast_set_properties_still_acks_the_sender_with_rc_zero()
+    {
+        var (h, _, db) = NewHandler();
+        using (db)
+        {
+            h.OnOperationRequest(Peer(out _), Join());
+
+            // SetProperties returns the sender's ack directly (the op handler forwards it via SendResponse).
+            var resp = h.SetProperties("co-op", senderActor: 1,
+                SetProps(new() { { "PlayerModelIndex", 1 } }, actorNr: 1, broadcast: true));
+
+            Assert.Equal(252, resp.OperationCode);
+            Assert.Equal(0, resp.ReturnCode);
+        }
+    }
+
+    [Fact]
+    public void Set_properties_without_broadcast_persists_but_is_not_relayed()
+    {
+        var (h, reg, db) = NewHandler();
+        using (db)
+        {
+            var a = Peer(out _); var b = Peer(out var bRaised);
+            h.OnOperationRequest(a, Join());
+            h.OnOperationRequest(b, Join());
+            bRaised.Clear();
+
+            h.OnOperationRequest(a, SetProps(new() { { "PlayerModelIndex", 9 } }, actorNr: 1, broadcast: false));
+
+            // Persisted but no event fanned out to the other actor.
+            Assert.Empty(bRaised);
+            Assert.Equal(9, reg.Find("co-op")!.ActorProperties(1)["PlayerModelIndex"]);
+        }
+    }
 }

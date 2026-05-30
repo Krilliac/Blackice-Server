@@ -20,6 +20,7 @@ public sealed class GameServerHandler : IOperationHandler
     private const byte PEventCode = 244, PData = 245;     // RaiseEvent: event code + data/CustomData
     private const byte EvJoin = 255;
     private const byte EvLeave = 254;
+    private const byte EvPropertiesChanged = 253;         // LoadBalancing EventCode.PropertiesChanged
     private const byte EvServerMessage = 199;             // our server->client message channel
     private const byte PunRpcEvent = 200;                 // PUN's RPC event code
     private const byte RpcMethodName = 3, RpcParams = 4;  // PUN RPC hashtable keys (method name / args)
@@ -27,6 +28,8 @@ public sealed class GameServerHandler : IOperationHandler
                                                           // when the method is in the project's RpcList
     private const byte PRoomName = 255, PSecret = 221, PActorNr = 254, PActorList = 252,
                        PGameProperties = 248, PActorProperties = 249, PProperties = 251;
+    private const byte PBroadcast = 250;                  // ParameterCode.Broadcast on OpSetProperties
+    private const byte PTargetActorNr = 253;              // EvPropertiesChanged: whose properties changed
 
     private readonly string _secret;
     private readonly RoomRegistry _registry;
@@ -87,7 +90,8 @@ public sealed class GameServerHandler : IOperationHandler
                 }
                 break;
             case OpSetProperties:
-                peer.SendResponse(SetProperties((peer.Tag as PeerRoomState)?.RoomName, request));
+                var prs = peer.Tag as PeerRoomState;
+                peer.SendResponse(SetProperties(prs?.RoomName, prs?.Actor, request));
                 break;
             case OpRaiseEvent:
                 var state = peer.Tag as PeerRoomState;
@@ -184,19 +188,42 @@ public sealed class GameServerHandler : IOperationHandler
 
     /// <summary>
     /// Handles OpSetProperties (252): the client sets its player properties (ActorNr present) or the
-    /// shared game properties, optionally broadcasting the change. We persist the values in the room
-    /// and acknowledge success. Rejecting this op (the previous default-case behavior) made the PUN
-    /// client treat the in-room property set as failed and abort back to the main menu — accepting it
-    /// is required to stay in-game. (Cross-peer EvPropertiesChanged broadcast awaits the Phase 2
-    /// relay; with a single occupant there is no other actor to notify.)
+    /// shared game properties, optionally broadcasting the change. We persist the values in the room,
+    /// acknowledge success, and — when Broadcast(250) is set — relay an EvPropertiesChanged (253) event
+    /// to the OTHER actors so they learn the change (e.g. a player's appearance/gear).
+    ///
+    /// Rejecting this op (the previous default-case behavior) made the PUN client treat the in-room
+    /// property set as failed and abort back to the main menu — accepting it is required to stay
+    /// in-game. Without the broadcast relay, remote clients never received the appearance properties
+    /// and rendered each other with default/missing gear.
+    ///
+    /// Wire shape of the relayed event matches what the LoadBalancing client reads in its event 253
+    /// handler: key TargetActorNr(253) = the actor whose properties changed (0/absent for shared game
+    /// properties), key Properties(251) = the changed hashtable. The change is relayed reliably:
+    /// appearance is not a position stream and must not be dropped.
     /// </summary>
-    public OperationResponse SetProperties(string? roomName, OperationRequest req)
+    public OperationResponse SetProperties(string? roomName, int? senderActor, OperationRequest req)
     {
         var room = roomName is not null ? _registry.Find(roomName) : null;
         if (room is not null && req.Parameters.TryGetValue(PProperties, out var p) && p is IDictionary props)
         {
+            // Player properties carry an explicit ActorNr; absent means the shared game properties.
             int? actorNr = req.Parameters.TryGetValue(PActorNr, out var a) && a is int ai ? ai : null;
             room.SetProperties(actorNr, props);
+
+            var broadcast = req.Parameters.TryGetValue(PBroadcast, out var b) && b is bool flag && flag;
+            if (broadcast && senderActor is int sender)
+            {
+                // TargetActorNr identifies whose props these are: the named actor for player props,
+                // or 0 for shared game props (the client reads 0 as "game properties").
+                var target = actorNr ?? 0;
+                var ev = new EventData(EvPropertiesChanged, new()
+                {
+                    { PProperties, props },
+                    { PTargetActorNr, target },
+                });
+                _registry.Session(roomName!).RelayFrom(sender, ev);   // reliable: appearance must not drop
+            }
         }
         else
         {

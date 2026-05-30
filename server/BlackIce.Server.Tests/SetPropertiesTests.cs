@@ -35,7 +35,7 @@ public class SetPropertiesTests
         var h = Handler(out var db, out _);
         using (db)
         {
-            var resp = h.SetProperties("co-op", SetProps(new() { { "Team", 1 } }, actorNr: 1));
+            var resp = h.SetProperties("co-op", senderActor: 1, SetProps(new() { { "Team", 1 } }, actorNr: 1));
             Assert.Equal(0, resp.ReturnCode);
             Assert.Null(resp.DebugMessage);
         }
@@ -47,7 +47,7 @@ public class SetPropertiesTests
         var h = Handler(out var db, out var registry);
         using (db)
         {
-            h.SetProperties("co-op", SetProps(new() { { "Team", 2 }, { "PlayerLevel", 7 } }, actorNr: 1));
+            h.SetProperties("co-op", senderActor: 1, SetProps(new() { { "Team", 2 }, { "PlayerLevel", 7 } }, actorNr: 1));
             var actorProps = registry.Find("co-op")!.ActorProperties(1);
             Assert.Equal(2, actorProps["Team"]);
             Assert.Equal(7, actorProps["PlayerLevel"]);
@@ -60,7 +60,7 @@ public class SetPropertiesTests
         var h = Handler(out var db, out var registry);
         using (db)
         {
-            h.SetProperties("co-op", SetProps(new() { { "Round", 3 } }, actorNr: null));
+            h.SetProperties("co-op", senderActor: 1, SetProps(new() { { "Round", 3 } }, actorNr: null));
             Assert.Equal(3, registry.Find("co-op")!.GameProperties["Round"]);
         }
     }
@@ -72,6 +72,6 @@ public class SetPropertiesTests
         // what caused the kick. (roomName null mirrors a peer whose Tag was never set.)
         var h = Handler(out var db, out _);
         using (db)
-            Assert.Equal(0, h.SetProperties(null, SetProps(new() { { "Team", 1 } }, actorNr: 1)).ReturnCode);
+            Assert.Equal(0, h.SetProperties(null, senderActor: 1, SetProps(new() { { "Team", 1 } }, actorNr: 1)).ReturnCode);
     }
 }
