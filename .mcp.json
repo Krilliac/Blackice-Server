@@ -1,0 +1,24 @@
+{
+  "$comment": [
+    "SQLite MCP server for inspecting the dev database (accounts, profiles, realms, server",
+    "state) directly while building Server-Platform work, instead of writing throwaway query",
+    "code. PREREQUISITE: install 'uv' (https://docs.astral.sh/uv/ — `pip install uv` or the",
+    "platform installer); `uvx` then fetches mcp-server-sqlite on first run. (npm is avoided",
+    "here due to this machine's TLS issue; uv sidesteps it.)",
+    "DB PATH: points at the location the Host writes by default (connstring 'Data Source=",
+    "blackice.db', relative to the run dir). The path below matches a Release run; adjust if",
+    "you run Debug or from a different cwd. The file is gitignored, so it only exists after",
+    "the server has run at least once.",
+    "Activates only when Claude is launched from this repo directory."
+  ],
+  "mcpServers": {
+    "blackice-db": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-sqlite",
+        "--db-path",
+        "server/BlackIce.Server.Host/bin/Release/net8.0/blackice.db"
+      ]
+    }
+  }
+}
