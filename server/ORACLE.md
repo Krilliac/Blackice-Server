@@ -41,3 +41,12 @@ spike.
 - Alternatives to full DH impl: (a) implement it (matches stock-client goal); (b) bypass via
   the BepInEx mod (UseNameServer=false + AuthMode=AuthOnce to skip EstablishEncryption),
   trading away the "no client changes beyond redirect" property.
+
+## Integration finding — Black Ice has native LAN mode
+- ConnectCoroutine (Assembly-CSharp ~114175) reads PlayerPrefs: `"LAN"` ("LAN" vs "Cloud"),
+  `"LAN IP"` (default 127.0.0.1), `"LAN Port"` (default 5055). LAN mode => UseNameServer=false,
+  Server=LAN IP, Port=LAN Port, connects straight to MASTER (no Name Server).
+- So the game already provides the realmlist redirect; the BepInEx redirect mod is optional.
+- Connect is triggered by a MENU action (Play/Connect), NOT pure startup — autonomous headless
+  integration can't click it. Registry: HKCU\Software\SuperDuperGameCompany\Black Ice.
+- AuthMode defaults to Auth, so encryption (DH) is still established even on the LAN/Master path.
