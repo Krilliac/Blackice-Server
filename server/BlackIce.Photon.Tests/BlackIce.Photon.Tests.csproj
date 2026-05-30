@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BlackIce.Photon\BlackIce.Photon.csproj" />
+    <ProjectReference Include="..\BlackIce.Photon.Crypto\BlackIce.Photon.Crypto.csproj" />
   </ItemGroup>
 
   <!-- Test-only serialization oracle: the real Photon client DLL. Never referenced by
