@@ -9,6 +9,7 @@ public class BlackIceDbContext : DbContext
     public DbSet<Account> Accounts => Set<Account>();
     public DbSet<Profile> Profiles => Set<Profile>();
     public DbSet<ServerState> ServerState => Set<ServerState>();
+    public DbSet<Realm> Realms => Set<Realm>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
