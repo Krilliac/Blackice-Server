@@ -17,3 +17,6 @@ artifacts/
 __pycache__/
 *.pyc
 .venv/
+
+# --- Downloaded third-party tools ---
+third-party/
