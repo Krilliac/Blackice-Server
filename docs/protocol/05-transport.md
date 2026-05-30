@@ -57,6 +57,28 @@ operation/event payload (see [04-serialization.md](04-serialization.md)).
 | 15 | CT_EG_SEND_FRAGMENT_UNSEQUENCED | |
 | 16 | CT_EG_ACK_UNSEQUENCED | |
 
+### Unreliable / unsequenced command header (types 7 and 11)
+
+`CT_SENDUNRELIABLE` (7) and `CT_SENDUNSEQUENCED` (11) extend the 12-byte common header with one
+extra `int32` (big-endian) immediately after `ReliableSequenceNumber`, making their header **16 bytes**:
+
+| Offset | Field | Notes |
+|--------|-------|-------|
+| 12 | UnreliableSequenceNumber (7) / UnsequencedGroup (11) | int32, big-endian |
+
+`CommandLength` (at offset 4) **includes** this extra field, so the payload begins at offset 16
+(not 12). Reliable commands (type 6) keep the 12-byte header.
+
+Delivery notes for relaying an unreliable command to a client:
+- The client tracks a per-channel incoming unreliable sequence and **discards** any unreliable
+  command whose `UnreliableSequenceNumber` is not strictly greater than the last accepted one
+  (stale/duplicate). A relay must therefore stamp a monotonically increasing per-channel value.
+- An unreliable command also carries a `ReliableSequenceNumber`; the client only **delivers** it
+  once it has consumed the reliable stream up to that value (`reliableSeq <= incomingReliableSequenceNumber`).
+  Stamp it with the channel's most recently sent reliable sequence — never a higher one — or the
+  packet is held until the reliable stream catches up.
+- Unreliable commands are **not** acknowledged (only reliable commands are).
+
 ## Reliability model
 
 - Each `EnetChannel` keeps independent incoming/outgoing **reliable** and **unreliable**
