@@ -11,6 +11,7 @@ public sealed class EnetPeer
 {
     private static int _peerCounter;
     private readonly Dictionary<byte, int> _outgoingSeq = new();
+    private readonly Dictionary<byte, int> _outgoingUnreliableSeq = new();
 
     public short PeerId { get; private set; } = -1;
     /// <summary>The client's per-connection challenge, echoed in every outgoing packet header.</summary>
@@ -45,6 +46,9 @@ public sealed class EnetPeer
             case NCommand.SendReliable:
                 appPayload = cmd.Payload;
                 break;
+            case NCommand.SendUnreliable:
+                appPayload = cmd.Payload;
+                break;
             // Ping (5), CT_EG_SERVERTIME (12), etc.: the reliable ACK above is all the transport
             // needs to keep the peer alive. Acknowledge (1) and Disconnect (4) emit nothing.
         }
@@ -54,6 +58,21 @@ public sealed class EnetPeer
     /// <summary>Wraps an application payload ([0xF3]... message) as a reliable command on channel 0.</summary>
     public NCommand WrapReliable(byte[] payload, byte channel = 0)
         => new(NCommand.SendReliable, channel, NCommand.FlagReliable, 4, NextSeq(channel), payload);
+
+    /// <summary>
+    /// Wraps an application payload as an UNRELIABLE command (type 7) on the given channel. Stamps the
+    /// per-channel monotonically increasing unreliable sequence the client requires (else it discards
+    /// the packet as stale/duplicate) and the channel's current reliable sequence (the client only
+    /// delivers an unreliable command once its reliableSeq has been reached). Not acked.
+    /// </summary>
+    public NCommand WrapUnreliable(byte[] payload, byte channel = 0)
+    {
+        _outgoingUnreliableSeq.TryGetValue(channel, out int u);
+        u++;
+        _outgoingUnreliableSeq[channel] = u;
+        _outgoingSeq.TryGetValue(channel, out int reliableSoFar);
+        return new NCommand(NCommand.SendUnreliable, channel, 0, 4, reliableSoFar, payload) { UnreliableSequenceNumber = u };
+    }
 
     /// <summary>
     /// Builds a server-initiated keepalive Ping (RTT probe) on the control channel. The client's

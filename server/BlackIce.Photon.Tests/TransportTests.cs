@@ -125,4 +125,25 @@ public class TransportTests
         Assert.Equal(new byte[] { 1, 2, 3 }, parsed.Payload);
         Assert.Equal(0, parsed.UnreliableSequenceNumber);
     }
+
+    [Fact]
+    public void Inbound_unreliable_command_surfaces_its_payload()
+    {
+        var peer = new EnetPeer();
+        var cmd = new NCommand(NCommand.SendUnreliable, 0, 0, 4, 50, new byte[] { 0xF3, 0x04, 1 }) { UnreliableSequenceNumber = 9 };
+        var outgoing = peer.HandleCommand(cmd, incomingSentTime: 0, out var payload);
+        Assert.Equal(new byte[] { 0xF3, 0x04, 1 }, payload);
+        Assert.DoesNotContain(outgoing, c => c.CommandType == NCommand.Acknowledge);
+    }
+
+    [Fact]
+    public void WrapUnreliable_stamps_increasing_per_channel_unreliable_seq()
+    {
+        var peer = new EnetPeer();
+        var c1 = peer.WrapUnreliable(new byte[] { 1 }, channel: 0);
+        var c2 = peer.WrapUnreliable(new byte[] { 2 }, channel: 0);
+        Assert.Equal(NCommand.SendUnreliable, c1.CommandType);
+        Assert.Equal((byte)0, c1.Flags);
+        Assert.True(c2.UnreliableSequenceNumber > c1.UnreliableSequenceNumber, "per-channel unreliable seq must advance");
+    }
 }
