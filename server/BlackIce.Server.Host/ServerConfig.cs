@@ -8,8 +8,15 @@ public sealed class ServerConfig
 {
     public string AdvertisedHost { get; set; } = "127.0.0.1";
     public bool AllowAnonymousLan { get; set; } = true;
-    public string TestRoomName { get; set; } = "[CUSTOM SERVER] Test Room";
     public DatabaseOptions Database { get; set; } = new();
+
+    /// <summary>Realms seeded into the DB on first run (only when the Realms table is empty).</summary>
+    public List<Realm> Realms { get; set; } = new()
+    {
+        new Realm { Name = "Black Ice — Co-op", DisplayName = "Co-op", Pvp = false, MaxPlayers = 8 },
+        new Realm { Name = "Black Ice — PvP", DisplayName = "PvP", Pvp = true, MaxPlayers = 6 },
+        new Realm { Name = "Black Ice — Hardcore", DisplayName = "Hardcore", HackDifficultyIncrease = 5, MaxPlayers = 4 },
+    };
 
     public static ServerConfig Load(string path)
     {

@@ -14,14 +14,16 @@ var accounts = new AccountService(db);
 Console.WriteLine($"BlackIce.Server — DB {config.Database.Provider}, advertising {config.AdvertisedHost}");
 Console.WriteLine($"*** One-time bootstrap code (redeem in-game once available): {accounts.EnsureBootstrapCode()} ***");
 
+var realms = new RealmService(config.Database.CreateContext());
+realms.SeedDefaults(config.Realms);
 var registry = new RoomRegistry();
-registry.GetOrCreate(config.TestRoomName);
+Console.WriteLine($"Realms: {string.Join(", ", realms.ListVisible().Select(r => r.Name))}");
 
 var listeners = new[]
 {
     new UdpListener("NameServer", 5058, new NameServerHandler($"{config.AdvertisedHost}:5055", secret, accounts)),
-    new UdpListener("MasterServer", 5055, new MasterServerHandler($"{config.AdvertisedHost}:5056", secret, registry, config.AllowAnonymousLan, config.TestRoomName, accounts)),
-    new UdpListener("GameServer", 5056, new GameServerHandler(secret, registry, config.AllowAnonymousLan, accounts)),
+    new UdpListener("MasterServer", 5055, new MasterServerHandler($"{config.AdvertisedHost}:5056", secret, registry, config.AllowAnonymousLan, accounts, realms)),
+    new UdpListener("GameServer", 5056, new GameServerHandler(secret, registry, config.AllowAnonymousLan, accounts, realms)),
 };
 
 using var cts = new CancellationTokenSource();
