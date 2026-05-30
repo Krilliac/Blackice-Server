@@ -26,6 +26,16 @@ public sealed class EnetPeer
     {
         appPayload = null;
         var outgoing = new List<NCommand>();
+
+        // eNet rule: EVERY reliable command must be acknowledged, regardless of type. The client
+        // buffers each unacked reliable command and retransmits it with exponential backoff; after
+        // the resend timeout (~10s) it force-disconnects the peer — even mid-game. The control
+        // channel (255) carries reliable Connect + CT_EG_SERVERTIME(12) commands that we were not
+        // acking, which silently killed in-room sessions ~10s after join. CT_ACK is itself never
+        // acked. Connect additionally gets a VerifyConnect below.
+        if ((cmd.Flags & NCommand.FlagReliable) != 0 && cmd.CommandType != NCommand.Acknowledge)
+            outgoing.Add(Ack(cmd, incomingSentTime));
+
         switch (cmd.CommandType)
         {
             case NCommand.Connect:
@@ -33,13 +43,10 @@ public sealed class EnetPeer
                 outgoing.Add(VerifyConnect());
                 break;
             case NCommand.SendReliable:
-                outgoing.Add(Ack(cmd, incomingSentTime));
                 appPayload = cmd.Payload;
                 break;
-            case NCommand.Ping:
-                outgoing.Add(Ack(cmd, incomingSentTime));
-                break;
-            // Acknowledge (1) and Disconnect (4): nothing to emit during the Phase 1 connect flow.
+            // Ping (5), CT_EG_SERVERTIME (12), etc.: the reliable ACK above is all the transport
+            // needs to keep the peer alive. Acknowledge (1) and Disconnect (4) emit nothing.
         }
         return outgoing;
     }
