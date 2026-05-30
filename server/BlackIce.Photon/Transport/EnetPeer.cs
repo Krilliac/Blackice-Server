@@ -55,6 +55,14 @@ public sealed class EnetPeer
     public NCommand WrapReliable(byte[] payload, byte channel = 0)
         => new(NCommand.SendReliable, channel, NCommand.FlagReliable, 4, NextSeq(channel), payload);
 
+    /// <summary>
+    /// Builds a server-initiated keepalive Ping (RTT probe) on the control channel. The client's
+    /// eNet layer acks it like any reliable command; we use it to actively probe a peer that's gone
+    /// quiet before deciding it's dead. (The client also pings us on its own ~1s cadence.)
+    /// </summary>
+    public NCommand Ping()
+        => new(NCommand.Ping, 0xFF, NCommand.FlagReliable, 4, NextSeq(0xFF), Array.Empty<byte>());
+
     private NCommand VerifyConnect()
     {
         var payload = new byte[32];                       // client reads peerId then skips 30 bytes

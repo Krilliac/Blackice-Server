@@ -12,6 +12,13 @@ namespace BlackIce.Server.Core;
 /// </summary>
 public sealed class UdpListener
 {
+    // Keepalive / dead-peer cleanup tuning. The client pings us ~1s; we run maintenance each tick,
+    // actively ping a peer that's been inbound-silent for PingQuietAfter, and evict (the only way we
+    // reclaim peer state) one we haven't heard from in DeadTimeout. Matches Photon's ~1s/~10s defaults.
+    private static readonly TimeSpan MaintenanceInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan PingQuietAfter = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan DeadTimeout = TimeSpan.FromSeconds(10);
+
     private readonly string _name;
     private readonly UdpClient _socket;
     private readonly IOperationHandler _handler;
@@ -27,23 +34,53 @@ public sealed class UdpListener
     public async Task RunAsync(CancellationToken ct)
     {
         Log.Info(_name, $"listening on UDP :{((IPEndPoint)_socket.Client.LocalEndPoint!).Port}");
+        // Single-threaded loop: ReceiveAsync is bounded by a per-iteration timeout so that idle
+        // periods still wake us to run peer maintenance. Because receive + maintenance share this
+        // one thread, _peers needs no locking.
+        var lastMaintenance = DateTime.UtcNow;
         while (!ct.IsCancellationRequested)
         {
-            UdpReceiveResult result;
-            try { result = await _socket.ReceiveAsync(ct); }
-            catch (OperationCanceledException) { break; }
-            catch (SocketException ex) { Log.Debug(_name, $"recv socket error (ignored): {ex.SocketErrorCode}"); continue; }
-
-            try { Process(result.Buffer, result.RemoteEndPoint); }
-            catch (Exception ex)
+            try
             {
-                // A single bad datagram must never take the listener down — but we now log the
-                // full exception (was: one-line message) so a mid-session failure is visible.
-                Log.Exception(_name, $"drop datagram from {result.RemoteEndPoint} " +
-                                     $"({result.Buffer.Length}B: {PhotonNames.Hex(result.Buffer, 64)})", ex);
+                using var recvCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                recvCts.CancelAfter(MaintenanceInterval);
+                var result = await _socket.ReceiveAsync(recvCts.Token);
+
+                try { Process(result.Buffer, result.RemoteEndPoint); }
+                catch (Exception ex)
+                {
+                    // A single bad datagram must never take the listener down — but we now log the
+                    // full exception (was: one-line message) so a mid-session failure is visible.
+                    Log.Exception(_name, $"drop datagram from {result.RemoteEndPoint} " +
+                                         $"({result.Buffer.Length}B: {PhotonNames.Hex(result.Buffer, 64)})", ex);
+                }
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }   // real shutdown
+            catch (OperationCanceledException) { /* receive timed out → fall through to maintenance */ }
+            catch (SocketException ex) { Log.Debug(_name, $"recv socket error (ignored): {ex.SocketErrorCode}"); }
+
+            var now = DateTime.UtcNow;
+            if (now - lastMaintenance >= MaintenanceInterval) { RunMaintenance(now); lastMaintenance = now; }
         }
         Log.Info(_name, "listener loop exited");
+    }
+
+    /// <summary>Pings quiet peers and evicts ones that have gone silent past <see cref="DeadTimeout"/>.</summary>
+    private void RunMaintenance(DateTime now)
+    {
+        List<IPEndPoint>? dead = null;
+        foreach (var (ep, peer) in _peers)
+        {
+            if (now - peer.LastInboundUtc >= DeadTimeout) (dead ??= new()).Add(ep);
+            else peer.MaybePing(now, PingQuietAfter);
+        }
+        if (dead is null) return;
+        foreach (var ep in dead)
+        {
+            if (!_peers.Remove(ep, out var peer)) continue;
+            Log.Info(_name, $"evicting silent peer {ep} (no inbound for {DeadTimeout.TotalSeconds:F0}s+); {_peers.Count} remain");
+            peer.NotifyDisconnect();
+        }
     }
 
     private void Process(byte[] datagram, IPEndPoint from)

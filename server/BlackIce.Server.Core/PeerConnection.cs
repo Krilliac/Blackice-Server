@@ -23,6 +23,10 @@ public sealed class PeerConnection
     /// <summary>Per-peer slot for role handlers to stash state (e.g. authenticated userId).</summary>
     public object? Tag { get; set; }
 
+    /// <summary>UTC of the last datagram received from this peer — drives keepalive + dead-peer eviction.</summary>
+    public DateTime LastInboundUtc { get; private set; } = DateTime.UtcNow;
+    private DateTime _lastPingSentUtc = DateTime.UtcNow;
+
     public PeerConnection(string role, IPEndPoint remote, IOperationHandler handler, Action<IReadOnlyList<NCommand>, int> send)
     {
         _role = role;
@@ -33,6 +37,7 @@ public sealed class PeerConnection
 
     public void HandlePacket(PhotonHeader header, IReadOnlyList<NCommand> commands)
     {
+        LastInboundUtc = DateTime.UtcNow;
         _enet.NoteChallenge(header.Challenge);
         var control = new List<NCommand>();
         foreach (var cmd in commands)
@@ -121,6 +126,22 @@ public sealed class PeerConnection
         var response = new OperationResponse(0, 0, null, new() { { 1, serverPublicKey } }); // ServerKey
         SendRaw(WireMessage.Response(response, WireMessage.InternalOperationResponse));
     }
+
+    /// <summary>
+    /// Sends a keepalive Ping if the peer has been inbound-silent for at least <paramref name="quietFor"/>
+    /// and we haven't already pinged within that window (so we probe at most once per window, not every
+    /// maintenance tick). A live client answers with an ack, refreshing <see cref="LastInboundUtc"/>.
+    /// </summary>
+    public void MaybePing(DateTime now, TimeSpan quietFor)
+    {
+        if (now - LastInboundUtc < quietFor || now - _lastPingSentUtc < quietFor) return;
+        _lastPingSentUtc = now;
+        Log.Trace(_role, $"{Remote} -> keepalive Ping (quiet {(now - LastInboundUtc).TotalSeconds:F1}s)");
+        _send(new[] { _enet.Ping() }, _enet.Challenge);
+    }
+
+    /// <summary>Notifies the role handler that this peer is being dropped (graceful quit or eviction).</summary>
+    public void NotifyDisconnect() => _handler.OnDisconnect(this);
 
     public void SendResponse(OperationResponse response)
     {

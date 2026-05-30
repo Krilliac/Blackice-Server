@@ -79,4 +79,16 @@ public class TransportTests
         var outgoing = peer.HandleCommand(unreliable, incomingSentTime: 0, out _);
         Assert.DoesNotContain(outgoing, c => c.CommandType == NCommand.Acknowledge);
     }
+
+    [Fact]
+    public void Ping_is_reliable_on_control_channel_with_incrementing_seq()
+    {
+        var peer = new EnetPeer();
+        var p1 = peer.Ping();
+        var p2 = peer.Ping();
+        Assert.Equal(NCommand.Ping, p1.CommandType);
+        Assert.Equal((byte)0xFF, p1.ChannelId);
+        Assert.Equal(NCommand.FlagReliable, (byte)(p1.Flags & NCommand.FlagReliable));
+        Assert.True(p2.ReliableSequenceNumber > p1.ReliableSequenceNumber, "control-channel seq must advance");
+    }
 }
