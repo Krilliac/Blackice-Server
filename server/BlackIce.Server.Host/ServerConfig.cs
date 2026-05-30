@@ -28,6 +28,13 @@ public sealed class ServerConfig
 
     public static ServerConfig Load(string path)
     {
+        // Resolve a relative path against the EXE directory, not the current working directory:
+        // otherwise a config edited next to the binary is silently ignored when the server is
+        // launched from elsewhere (e.g. `dotnet run` from the repo root). The log file already
+        // anchors to AppContext.BaseDirectory — config + db now match it.
+        if (!Path.IsPathRooted(path))
+            path = Path.Combine(AppContext.BaseDirectory, path);
+
         if (!File.Exists(path))
         {
             var def = new ServerConfig();
