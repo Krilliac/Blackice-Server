@@ -56,4 +56,21 @@ public class MessageTests
         Assert.Equal(227, parsed.OperationCode);
         Assert.Equal("Room #1", parsed.Parameters[255]);
     }
+
+    [Fact]
+    public void Client_parses_our_server_message_event()
+    {
+        // ServerMessage channel (GameServerHandler.ServerMessageEvent): event code 199,
+        // text under param 245 — exactly what the BlackIce.Motd plugin reads back as
+        // photonEvent.Parameters[245]. Round-trip through the real Photon codec to prove
+        // the client decodes both the code and the text faithfully.
+        var ours = MessageSerializer.SerializeEvent(new EventData(199, new()
+        {
+            { 245, "Welcome to the server" },
+        }));
+
+        var ev = (ExitGames.Client.Photon.EventData)Oracle.DeserializeMessage(ours);
+        Assert.Equal(199, ev.Code);
+        Assert.Equal("Welcome to the server", ev.Parameters[245]);
+    }
 }
