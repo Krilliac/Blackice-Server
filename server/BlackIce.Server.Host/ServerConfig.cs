@@ -8,6 +8,14 @@ public sealed class ServerConfig
 {
     public string AdvertisedHost { get; set; } = "127.0.0.1";
     public bool AllowAnonymousLan { get; set; } = true;
+
+    /// <summary>
+    /// Optional global Message of the Day applied on startup. Per-realm overrides live on each
+    /// entry in <see cref="Realms"/> (Realm.Motd). A null/empty value here is ignored so it never
+    /// wipes a MOTD set live via the `motd` console command. See MotdService.
+    /// </summary>
+    public string? Motd { get; set; }
+
     public DatabaseOptions Database { get; set; } = new();
 
     /// <summary>Realms seeded into the DB on first run (only when the Realms table is empty).</summary>

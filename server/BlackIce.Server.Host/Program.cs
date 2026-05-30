@@ -42,6 +42,19 @@ Log.Info("HOST", $"One-time bootstrap code: {accounts.EnsureBootstrapCode()}");
 var realms = new RealmService(config.Database.CreateContext());
 var motd = new MotdService(config.Database.CreateContext());
 realms.SeedDefaults(config.Realms);
+
+// Apply MOTDs from config on startup, reusing the same service the console commands use. Each is
+// guarded by a non-empty check so an absent config value leaves any live `motd`/`realmmotd` edit
+// intact (config is authoritative only when it actually specifies a value). SetRealm needs the
+// realm to exist, which SeedDefaults has just ensured.
+if (!string.IsNullOrWhiteSpace(config.Motd))
+{
+    motd.SetGlobal(config.Motd);
+    Log.Info("HOST", $"global MOTD from config: \"{config.Motd}\"");
+}
+foreach (var r in config.Realms.Where(r => !string.IsNullOrWhiteSpace(r.Motd)))
+    if (motd.SetRealm(r.Name, r.Motd)) Log.Info("HOST", $"realm MOTD from config: {r.Name} -> \"{r.Motd}\"");
+
 var registry = new RoomRegistry();
 Log.Info("HOST", $"Realms: {string.Join(", ", realms.ListVisible().Select(r => r.Name))}");
 
