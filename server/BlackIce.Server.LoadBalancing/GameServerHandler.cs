@@ -31,10 +31,11 @@ public sealed class GameServerHandler : IOperationHandler
         switch (request.OperationCode)
         {
             case OpAuthenticate:
-                peer.SendResponse(
-                    request.Parameters.TryGetValue(PSecret, out var t) && t is string token && AuthToken.TryValidate(token, _secret, out _)
-                        ? new OperationResponse(OpAuthenticate, 0, null, new())
-                        : new OperationResponse(OpAuthenticate, -1, "Invalid token", new()));
+                // Validate the token if present (NS/Master flow); accept tokenless LAN/direct contact.
+                bool ok = !request.Parameters.TryGetValue(PSecret, out var t)
+                          || (t is string token && AuthToken.TryValidate(token, _secret, out _));
+                peer.SendResponse(new OperationResponse(OpAuthenticate, (short)(ok ? 0 : -1),
+                    ok ? null : "Invalid token", new()));
                 break;
             case OpCreateGame:
             case OpJoinGame:

@@ -49,9 +49,21 @@ public sealed class MasterServerHandler : IOperationHandler
     }
 
     public OperationResponse Authenticate(OperationRequest r)
-        => r.Parameters.TryGetValue(PSecret, out var t) && t is string token && AuthToken.TryValidate(token, _secret, out _)
-            ? new OperationResponse(OpAuthenticate, 0, null, new())
-            : new OperationResponse(OpAuthenticate, -1, "Invalid token", new());
+    {
+        // Full Name Server flow: a token is present and must validate.
+        // LAN/direct flow (UseNameServer=false): no token issued yet — accept first contact.
+        if (r.Parameters.TryGetValue(PSecret, out var t) && t is string token)
+            return AuthToken.TryValidate(token, _secret, out _)
+                ? new OperationResponse(OpAuthenticate, 0, null, new())
+                : new OperationResponse(OpAuthenticate, -1, "Invalid token", new());
+
+        var userId = Guid.NewGuid().ToString();
+        return new OperationResponse(OpAuthenticate, 0, null, new()
+        {
+            { PSecret, AuthToken.Mint(userId, _secret) },   // hand back a token for the Game hop
+            { 225, userId },                                 // ParameterCode.UserId
+        });
+    }
 
     public OperationResponse JoinLobby(OperationRequest r) => new(OpJoinLobby, 0, null, new());
 
