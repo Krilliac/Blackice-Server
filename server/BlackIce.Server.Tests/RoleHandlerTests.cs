@@ -40,6 +40,30 @@ public class RoleHandlerTests
     }
 
     [Fact]
+    public void Master_rejects_tokenless_auth_by_default()
+    {
+        var master = new MasterServerHandler("127.0.0.1:5056", Secret, new RoomRegistry());
+        // No token, anonymous not allowed -> rejected (secure default).
+        Assert.Equal(-1, master.Authenticate(new OperationRequest(230, new()), allowAnonymous: false).ReturnCode);
+    }
+
+    [Fact]
+    public void Master_allows_tokenless_auth_only_when_explicitly_enabled()
+    {
+        var master = new MasterServerHandler("127.0.0.1:5056", Secret, new RoomRegistry());
+        var resp = master.Authenticate(new OperationRequest(230, new()), allowAnonymous: true);
+        Assert.Equal(0, resp.ReturnCode);
+        Assert.True(resp.Parameters.ContainsKey(221)); // minted token handed back for the Game hop
+    }
+
+    [Fact]
+    public void Game_rejects_tokenless_auth_by_default()
+    {
+        var game = new GameServerHandler(Secret, new RoomRegistry());
+        Assert.Equal(-1, game.Authenticate(new OperationRequest(230, new()), allowAnonymous: false).ReturnCode);
+    }
+
+    [Fact]
     public void Master_creategame_returns_game_server_address()
     {
         var master = new MasterServerHandler("127.0.0.1:5056", Secret, new RoomRegistry());

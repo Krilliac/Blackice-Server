@@ -7,12 +7,17 @@ using BlackIce.Server.LoadBalancing;
 var advertised = args.Length > 0 ? args[0] : "127.0.0.1";
 const string secret = "change-me-phase1";
 
+// LAN mode: the game connects directly to the Master with no Name Server token. We accept that
+// only from loopback/private-range peers (enforced per-request). Disable for an internet-facing
+// deployment that should require the full Name Server token flow.
+bool allowAnonymousLan = !args.Contains("--require-token");
+
 var registry = new RoomRegistry();
 var listeners = new[]
 {
     new UdpListener("NameServer", 5058, new NameServerHandler($"{advertised}:5055", secret)),
-    new UdpListener("MasterServer", 5055, new MasterServerHandler($"{advertised}:5056", secret, registry)),
-    new UdpListener("GameServer", 5056, new GameServerHandler(secret, registry)),
+    new UdpListener("MasterServer", 5055, new MasterServerHandler($"{advertised}:5056", secret, registry, allowAnonymousLan)),
+    new UdpListener("GameServer", 5056, new GameServerHandler(secret, registry, allowAnonymousLan)),
 };
 
 using var cts = new CancellationTokenSource();

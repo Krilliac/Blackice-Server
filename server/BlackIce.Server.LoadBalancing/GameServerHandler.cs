@@ -16,11 +16,17 @@ public sealed class GameServerHandler : IOperationHandler
 
     private readonly string _secret;
     private readonly RoomRegistry _registry;
+    private readonly bool _allowAnonymousLan;
 
-    public GameServerHandler(string secret, RoomRegistry registry)
+    /// <param name="allowAnonymousLan">
+    /// When true, tokenless auth (LAN mode) is accepted from loopback/private-range peers only.
+    /// Defaults to false (secure): a valid token from the Master/Name Server is required.
+    /// </param>
+    public GameServerHandler(string secret, RoomRegistry registry, bool allowAnonymousLan = false)
     {
         _secret = secret;
         _registry = registry;
+        _allowAnonymousLan = allowAnonymousLan;
     }
 
     public void OnConnect(PeerConnection peer) { }
@@ -31,11 +37,7 @@ public sealed class GameServerHandler : IOperationHandler
         switch (request.OperationCode)
         {
             case OpAuthenticate:
-                // Validate the token if present (NS/Master flow); accept tokenless LAN/direct contact.
-                bool ok = !request.Parameters.TryGetValue(PSecret, out var t)
-                          || (t is string token && AuthToken.TryValidate(token, _secret, out _));
-                peer.SendResponse(new OperationResponse(OpAuthenticate, (short)(ok ? 0 : -1),
-                    ok ? null : "Invalid token", new()));
+                peer.SendResponse(Authenticate(request, _allowAnonymousLan && TrustedNetwork.IsLanOrLoopback(peer.Remote)));
                 break;
             case OpCreateGame:
             case OpJoinGame:
@@ -47,6 +49,18 @@ public sealed class GameServerHandler : IOperationHandler
                 peer.SendResponse(new OperationResponse(request.OperationCode, -2, "Unknown operation", new()));
                 break;
         }
+    }
+
+    public OperationResponse Authenticate(OperationRequest r, bool allowAnonymous = false)
+    {
+        if (r.Parameters.TryGetValue(PSecret, out var t) && t is string token)
+            return AuthToken.TryValidate(token, _secret, out _)
+                ? new OperationResponse(OpAuthenticate, 0, null, new())
+                : new OperationResponse(OpAuthenticate, -1, "Invalid token", new());
+
+        return allowAnonymous
+            ? new OperationResponse(OpAuthenticate, 0, null, new())
+            : new OperationResponse(OpAuthenticate, -1, "Authentication token required", new());
     }
 
     public (OperationResponse Response, EventData Join) EnterRoom(OperationRequest r)

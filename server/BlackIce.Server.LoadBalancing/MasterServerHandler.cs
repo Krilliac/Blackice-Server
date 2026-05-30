@@ -16,12 +16,18 @@ public sealed class MasterServerHandler : IOperationHandler
     private readonly string _gameAddress;
     private readonly string _secret;
     private readonly RoomRegistry _registry;
+    private readonly bool _allowAnonymousLan;
 
-    public MasterServerHandler(string gameAddress, string secret, RoomRegistry registry)
+    /// <param name="allowAnonymousLan">
+    /// When true, tokenless first-contact auth (the game's LAN mode) is accepted — but only from
+    /// loopback/private-range peers. Defaults to false (secure): the full Name Server token is required.
+    /// </param>
+    public MasterServerHandler(string gameAddress, string secret, RoomRegistry registry, bool allowAnonymousLan = false)
     {
         _gameAddress = gameAddress;
         _secret = secret;
         _registry = registry;
+        _allowAnonymousLan = allowAnonymousLan;
     }
 
     public void OnConnect(PeerConnection peer) { }
@@ -32,7 +38,8 @@ public sealed class MasterServerHandler : IOperationHandler
         switch (request.OperationCode)
         {
             case OpAuthenticate:
-                peer.SendResponse(Authenticate(request));
+                bool anon = _allowAnonymousLan && TrustedNetwork.IsLanOrLoopback(peer.Remote);
+                peer.SendResponse(Authenticate(request, anon));
                 break;
             case OpJoinLobby:
                 peer.SendResponse(JoinLobby(request));
@@ -48,14 +55,18 @@ public sealed class MasterServerHandler : IOperationHandler
         }
     }
 
-    public OperationResponse Authenticate(OperationRequest r)
+    public OperationResponse Authenticate(OperationRequest r, bool allowAnonymous = false)
     {
         // Full Name Server flow: a token is present and must validate.
-        // LAN/direct flow (UseNameServer=false): no token issued yet — accept first contact.
         if (r.Parameters.TryGetValue(PSecret, out var t) && t is string token)
             return AuthToken.TryValidate(token, _secret, out _)
                 ? new OperationResponse(OpAuthenticate, 0, null, new())
                 : new OperationResponse(OpAuthenticate, -1, "Invalid token", new());
+
+        // LAN/direct flow (UseNameServer=false): no token issued. Only honored when explicitly
+        // enabled AND the peer is on a trusted local network (checked by the caller).
+        if (!allowAnonymous)
+            return new OperationResponse(OpAuthenticate, -1, "Authentication token required", new());
 
         var userId = Guid.NewGuid().ToString();
         return new OperationResponse(OpAuthenticate, 0, null, new()
