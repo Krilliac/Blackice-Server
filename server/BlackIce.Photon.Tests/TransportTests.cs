@@ -91,4 +91,38 @@ public class TransportTests
         Assert.Equal(NCommand.FlagReliable, (byte)(p1.Flags & NCommand.FlagReliable));
         Assert.True(p2.ReliableSequenceNumber > p1.ReliableSequenceNumber, "control-channel seq must advance");
     }
+
+    [Fact]
+    public void Unreliable_command_roundtrips_with_its_own_sequence_field()
+    {
+        var c = new NCommand(NCommand.SendUnreliable, ChannelId: 0, Flags: 0, ReservedByte: 4,
+                             ReliableSequenceNumber: 51, Payload: new byte[] { 0xF3, 0x04, 1, 2, 3 })
+                { UnreliableSequenceNumber = 1234 };
+        var bytes = c.ToBytes();
+        var parsed = NCommand.Parse(bytes, out int consumed);
+        Assert.Equal(bytes.Length, consumed);
+        Assert.Equal(NCommand.SendUnreliable, parsed.CommandType);
+        Assert.Equal(51, parsed.ReliableSequenceNumber);
+        Assert.Equal(1234, parsed.UnreliableSequenceNumber);
+        Assert.Equal(new byte[] { 0xF3, 0x04, 1, 2, 3 }, parsed.Payload);
+    }
+
+    [Fact]
+    public void Unreliable_header_is_16_bytes_so_payload_is_not_corrupted()
+    {
+        var payload = new byte[] { 0xF3, 0x04, 9, 9, 9, 9 };
+        var unrel = new NCommand(NCommand.SendUnreliable, 0, 0, 4, 50, payload) { UnreliableSequenceNumber = 7 };
+        var parsed = NCommand.Parse(unrel.ToBytes(), out _);
+        Assert.Equal(payload, parsed.Payload);
+    }
+
+    [Fact]
+    public void Reliable_command_still_uses_a_12_byte_header()
+    {
+        var c = new NCommand(NCommand.SendReliable, 0, NCommand.FlagReliable, 4, 5, new byte[] { 1, 2, 3 });
+        var parsed = NCommand.Parse(c.ToBytes(), out int consumed);
+        Assert.Equal(c.ToBytes().Length, consumed);
+        Assert.Equal(new byte[] { 1, 2, 3 }, parsed.Payload);
+        Assert.Equal(0, parsed.UnreliableSequenceNumber);
+    }
 }
