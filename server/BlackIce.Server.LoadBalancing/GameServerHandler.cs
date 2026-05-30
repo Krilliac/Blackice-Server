@@ -13,7 +13,7 @@ namespace BlackIce.Server.LoadBalancing;
 public sealed class GameServerHandler : IOperationHandler
 {
     private const byte OpAuthenticate = 230, OpCreateGame = 227, OpJoinGame = 226;
-    private const byte OpRaiseEvent = 253;
+    private const byte OpRaiseEvent = 253, OpSetProperties = 252;
     private const byte PEventCode = 244, PData = 245;     // RaiseEvent: event code + data/CustomData
     private const byte EvJoin = 255;
     private const byte EvServerMessage = 199;             // our server->client message channel
@@ -22,7 +22,7 @@ public sealed class GameServerHandler : IOperationHandler
     private const byte RpcMethodShortcut = 5;             // PUN sends a byte index here instead of the name
                                                           // when the method is in the project's RpcList
     private const byte PRoomName = 255, PSecret = 221, PActorNr = 254, PActorList = 252,
-                       PGameProperties = 248, PActorProperties = 249;
+                       PGameProperties = 248, PActorProperties = 249, PProperties = 251;
 
     private readonly string _secret;
     private readonly RoomRegistry _registry;
@@ -68,6 +68,9 @@ public sealed class GameServerHandler : IOperationHandler
                     peer.Tag = request.Parameters.TryGetValue(PRoomName, out var rn) ? rn.ToString() : null;
                     peer.RaiseEvent(join);
                 }
+                break;
+            case OpSetProperties:
+                peer.SendResponse(SetProperties(peer.Tag as string, request));
                 break;
             case OpRaiseEvent:
                 var reply = TryHandleChatCommand(peer.Tag as string, request);
@@ -151,6 +154,29 @@ public sealed class GameServerHandler : IOperationHandler
             { PActorList, room.ActorNumbers.ToArray() },
         });
         return (response, join);
+    }
+
+    /// <summary>
+    /// Handles OpSetProperties (252): the client sets its player properties (ActorNr present) or the
+    /// shared game properties, optionally broadcasting the change. We persist the values in the room
+    /// and acknowledge success. Rejecting this op (the previous default-case behavior) made the PUN
+    /// client treat the in-room property set as failed and abort back to the main menu — accepting it
+    /// is required to stay in-game. (Cross-peer EvPropertiesChanged broadcast awaits the Phase 2
+    /// relay; with a single occupant there is no other actor to notify.)
+    /// </summary>
+    public OperationResponse SetProperties(string? roomName, OperationRequest req)
+    {
+        var room = roomName is not null ? _registry.Find(roomName) : null;
+        if (room is not null && req.Parameters.TryGetValue(PProperties, out var p) && p is IDictionary props)
+        {
+            int? actorNr = req.Parameters.TryGetValue(PActorNr, out var a) && a is int ai ? ai : null;
+            room.SetProperties(actorNr, props);
+        }
+        else
+        {
+            Log.Warn("GameServer", $"SetProperties: unresolved room (\"{roomName}\") or missing Properties(251)");
+        }
+        return new OperationResponse(OpSetProperties, 0, null, new());
     }
 
     /// <summary>Builds a ServerMessage event: a server->client text line the BlackIce.Motd plugin renders.</summary>
