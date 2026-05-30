@@ -59,4 +59,21 @@ public class ConsoleCommandProcessorTests
         Assert.Contains("pvp", proc.Execute("realmmotd pvp No mercy"));
         Assert.Equal("No mercy", db.Context.Realms.Find("pvp")!.Motd);
     }
+
+    [Fact]
+    public void Realmmotd_handles_realm_name_that_is_substring_of_command()
+    {
+        // Regression: the old parser sliced text via trimmed.IndexOf(realmName),
+        // which matched inside the literal command word "realmmotd" when the
+        // realm name ("realm") appeared there first, corrupting the stored text.
+        using var db = new TestDb();
+        db.Context.Realms.Add(new Realm { Name = "realm" });
+        db.Context.SaveChanges();
+        var motd = new MotdService(db.Context);
+        var proc = new ConsoleCommandProcessor(new AccountService(db.Context), motd);
+
+        proc.Execute("realmmotd realm hello world");
+
+        Assert.Equal("hello world", db.Context.Realms.Find("realm")!.Motd);
+    }
 }
