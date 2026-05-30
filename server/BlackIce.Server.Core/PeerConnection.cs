@@ -16,14 +16,16 @@ public sealed class PeerConnection
     private readonly EnetPeer _enet = new();
     private readonly IOperationHandler _handler;
     private readonly Action<IReadOnlyList<NCommand>, int> _send;
+    private readonly string _role;
     private DiffieHellmanCryptoProvider? _crypto;
 
     public IPEndPoint Remote { get; }
     /// <summary>Per-peer slot for role handlers to stash state (e.g. authenticated userId).</summary>
     public object? Tag { get; set; }
 
-    public PeerConnection(IPEndPoint remote, IOperationHandler handler, Action<IReadOnlyList<NCommand>, int> send)
+    public PeerConnection(string role, IPEndPoint remote, IOperationHandler handler, Action<IReadOnlyList<NCommand>, int> send)
     {
+        _role = role;
         Remote = remote;
         _handler = handler;
         _send = send;
@@ -36,7 +38,19 @@ public sealed class PeerConnection
         foreach (var cmd in commands)
         {
             control.AddRange(_enet.HandleCommand(cmd, header.ServerTime, out var payload));
-            if (cmd.CommandType == NCommand.Connect) _handler.OnConnect(this);
+            if (cmd.CommandType == NCommand.Connect)
+            {
+                Log.Info(_role, $"{Remote} eNet CONNECT");
+                _handler.OnConnect(this);
+            }
+            if (cmd.CommandType == NCommand.Disconnect)
+            {
+                // The client is telling us it's leaving. We don't tear down transport state yet
+                // (Phase 1), but record it — a Disconnect here vs. a silent timeout are very
+                // different failure modes when diagnosing "kicked out of the game".
+                Log.Info(_role, $"{Remote} eNet DISCONNECT received");
+                _handler.OnDisconnect(this);
+            }
             if (payload is not null) HandleAppPayload(payload);
         }
         if (control.Count > 0) _send(control, _enet.Challenge);
@@ -44,9 +58,9 @@ public sealed class PeerConnection
 
     private void HandleAppPayload(byte[] payload)
     {
-        if (!WireMessage.TryPeekType(payload, out var type, out _))
+        if (!WireMessage.TryPeekType(payload, out var type, out var encrypted))
         {
-            Console.Error.WriteLine($"[{Remote}] dropped non-Photon payload");
+            Log.Warn(_role, $"{Remote} dropped non-Photon payload ({payload.Length}B: {PhotonNames.Hex(payload, 32)})");
             return;
         }
 
@@ -54,7 +68,7 @@ public sealed class PeerConnection
         // 2-byte InitResponse back before it proceeds to encryption + authentication.
         if (type == WireMessage.Init)
         {
-            Console.WriteLine($"[{Remote}] Init -> InitResponse");
+            Log.Info(_role, $"{Remote} Init -> InitResponse");
             SendRaw(WireMessage.InitResponseMessage());
             return;
         }
@@ -66,19 +80,34 @@ public sealed class PeerConnection
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[{Remote}] dropped malformed message: {ex.Message}");
+            Log.Exception(_role, $"{Remote} dropped malformed {PhotonNames.MessageType(type)} message " +
+                                 $"(enc={encrypted}, {payload.Length}B)", ex);
             return;
         }
 
         if (msg is { MessageType: WireMessage.InternalOperationRequest, Code: 0 })
         {
-            Console.WriteLine($"[{Remote}] InitEncryption -> deriving shared key");
+            Log.Info(_role, $"{Remote} InitEncryption -> deriving shared key");
             EstablishEncryption(msg.Parameters);
             return;
         }
 
-        Console.WriteLine($"[{Remote}] op {msg.Code} ({msg.Parameters.Count} params)");
-        _handler.OnOperationRequest(this, new OperationRequest(msg.Code, msg.Parameters));
+        if (msg.MessageType == WireMessage.Operation)
+            Log.Info(_role, $"{Remote} <- {PhotonNames.Op(msg.Code)} [{PhotonNames.Params(msg.Parameters)}]");
+        else
+            Log.Info(_role, $"{Remote} <- {PhotonNames.MessageType(msg.MessageType)} code={msg.Code} " +
+                            $"[{PhotonNames.Params(msg.Parameters)}]");
+
+        try
+        {
+            _handler.OnOperationRequest(this, new OperationRequest(msg.Code, msg.Parameters));
+        }
+        catch (Exception ex)
+        {
+            // A handler throwing on one operation must not kill the peer/listener silently. Log it
+            // with the offending op so we can see exactly which message broke processing.
+            Log.Exception(_role, $"{Remote} handler threw on {PhotonNames.Op(msg.Code)}", ex);
+        }
     }
 
     /// <summary>InitEncryption: derive the shared key from the client's public key, return ours.</summary>
@@ -88,12 +117,24 @@ public sealed class PeerConnection
         _crypto = new DiffieHellmanCryptoProvider();
         var serverPublicKey = _crypto.PublicKey;
         _crypto.DeriveSharedKey(clientPublicKey);
+        Log.Info(_role, $"{Remote} shared key derived (clientKey {clientPublicKey.Length}B, serverKey {serverPublicKey.Length}B)");
         var response = new OperationResponse(0, 0, null, new() { { 1, serverPublicKey } }); // ServerKey
         SendRaw(WireMessage.Response(response, WireMessage.InternalOperationResponse));
     }
 
-    public void SendResponse(OperationResponse response) => SendRaw(WireMessage.Response(response));
-    public void RaiseEvent(EventData ev) => SendRaw(WireMessage.EventMessage(ev));
+    public void SendResponse(OperationResponse response)
+    {
+        Log.Info(_role, $"{Remote} -> {PhotonNames.Op(response.OperationCode)} response rc={response.ReturnCode}" +
+                        $"{(response.DebugMessage is null ? "" : $" \"{response.DebugMessage}\"")} " +
+                        $"[{PhotonNames.Params(response.Parameters)}]");
+        SendRaw(WireMessage.Response(response));
+    }
+
+    public void RaiseEvent(EventData ev)
+    {
+        Log.Info(_role, $"{Remote} -> raise {PhotonNames.Event(ev.Code)} [{PhotonNames.Params(ev.Parameters)}]");
+        SendRaw(WireMessage.EventMessage(ev));
+    }
 
     private void SendRaw(byte[] appMessage) =>
         _send(new[] { _enet.WrapReliable(appMessage) }, _enet.Challenge);

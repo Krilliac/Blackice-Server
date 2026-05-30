@@ -8,17 +8,42 @@ if (args.Length > 0 && !args[0].StartsWith("--")) config.AdvertisedHost = args[0
 if (args.Contains("--require-token")) config.AllowAnonymousLan = false;
 const string secret = "change-me-platform-sp1";
 
+// --- Diagnostics ----------------------------------------------------------------------------
+// Log level: --trace / --debug (or env BLACKICE_LOG=Trace|Debug|Info|Warn|Error). Default Info.
+// Every run also appends-or-replaces a timestamped log file next to the exe for offline analysis.
+Log.Level = ResolveLogLevel(args);
+var logPath = Path.Combine(AppContext.BaseDirectory, $"blackice-server-{DateTime.Now:yyyyMMdd-HHmmss}.log");
+Log.ToFile(logPath);
+
+// Make crashes loud and recorded. An unhandled exception on any thread, or a faulted Task that
+// nobody awaited, would otherwise kill the process silently — which looks exactly like the
+// client "getting kicked" (the server stops replying and the client times out).
+AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+{
+    Log.Error("FATAL", $"Unhandled exception (terminating={e.IsTerminating}): {(e.ExceptionObject as Exception)?.ToString() ?? e.ExceptionObject?.ToString()}");
+    Log.Flush();
+};
+TaskScheduler.UnobservedTaskException += (_, e) =>
+{
+    Log.Exception("FATAL", "Unobserved task exception", e.Exception);
+    e.SetObserved();
+    Log.Flush();
+};
+AppDomain.CurrentDomain.ProcessExit += (_, _) => { Log.Info("HOST", "process exiting"); Log.Flush(); };
+
 using var db = config.Database.CreateContext();      // EnsureCreated runs here
 var accounts = new AccountService(db);
 
-Console.WriteLine($"BlackIce.Server — DB {config.Database.Provider}, advertising {config.AdvertisedHost}");
-Console.WriteLine($"*** One-time bootstrap code (redeem in-game once available): {accounts.EnsureBootstrapCode()} ***");
+Log.Info("HOST", $"BlackIce.Server starting — DB {config.Database.Provider}, advertising {config.AdvertisedHost}, " +
+                 $"anonLan={config.AllowAnonymousLan}, logLevel={Log.Level}");
+Log.Info("HOST", $"log file: {logPath}");
+Log.Info("HOST", $"One-time bootstrap code: {accounts.EnsureBootstrapCode()}");
 
 var realms = new RealmService(config.Database.CreateContext());
 var motd = new MotdService(config.Database.CreateContext());
 realms.SeedDefaults(config.Realms);
 var registry = new RoomRegistry();
-Console.WriteLine($"Realms: {string.Join(", ", realms.ListVisible().Select(r => r.Name))}");
+Log.Info("HOST", $"Realms: {string.Join(", ", realms.ListVisible().Select(r => r.Name))}");
 
 var listeners = new[]
 {
@@ -44,12 +69,22 @@ var consoleThread = new Thread(() =>
             var outp = processor.Execute(line);
             if (!string.IsNullOrEmpty(outp)) Console.WriteLine(outp);
         }
-        catch (Exception ex) { Console.Error.WriteLine($"command error: {ex.Message}"); }
+        catch (Exception ex) { Log.Exception("CONSOLE", $"command '{line}' failed", ex); }
     }
 }) { IsBackground = true };
 consoleThread.Start();
 
-Console.WriteLine("Listening — NS 5058 / Master 5055 / Game 5056");
+Log.Info("HOST", "Listening — NS 5058 / Master 5055 / Game 5056");
 try { await Task.WhenAll(listeners.Select(l => l.RunAsync(cts.Token))); }
 catch (OperationCanceledException) { }
-Console.WriteLine("BlackIce.Server stopped.");
+catch (Exception ex) { Log.Exception("FATAL", "listener task faulted", ex); }
+Log.Info("HOST", "BlackIce.Server stopped.");
+Log.Flush();
+
+static LogLevel ResolveLogLevel(string[] args)
+{
+    if (args.Contains("--trace")) return LogLevel.Trace;
+    if (args.Contains("--debug")) return LogLevel.Debug;
+    var env = Environment.GetEnvironmentVariable("BLACKICE_LOG");
+    return Enum.TryParse<LogLevel>(env, ignoreCase: true, out var lvl) ? lvl : LogLevel.Info;
+}

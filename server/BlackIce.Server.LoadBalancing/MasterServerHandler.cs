@@ -62,6 +62,8 @@ public sealed class MasterServerHandler : IOperationHandler
                 peer.SendResponse(CreateGame(request));
                 break;
             default:
+                Log.Warn("MasterServer", $"{peer.Remote} unhandled {PhotonNames.Op(request.OperationCode)} " +
+                                         $"[{PhotonNames.Params(request.Parameters)}] -> rc=-2");
                 peer.SendResponse(new OperationResponse(request.OperationCode, -2, "Unknown operation", new()));
                 break;
         }

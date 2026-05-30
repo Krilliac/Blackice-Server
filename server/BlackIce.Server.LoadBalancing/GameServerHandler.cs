@@ -72,8 +72,16 @@ public sealed class GameServerHandler : IOperationHandler
             case OpRaiseEvent:
                 var reply = TryHandleChatCommand(peer.Tag as string, request);
                 if (reply is not null) peer.RaiseEvent(reply);   // command handled; not relayed
+                // NOTE: a non-command RaiseEvent (gameplay/RPC) is currently NOT relayed to other
+                // peers — Phase 2 relay is not built. We intentionally send no response here, which
+                // is what a real Photon server does for a fire-and-forget RaiseEvent.
                 break;
             default:
+                // The live client sends ops we don't implement yet (e.g. OpSetProperties=252).
+                // Photon answers unknown ops with an error response; the PUN client treats these
+                // as non-fatal, but log them so we can see what the game expects.
+                Log.Warn("GameServer", $"{peer.Remote} unhandled {PhotonNames.Op(request.OperationCode)} " +
+                                       $"[{PhotonNames.Params(request.Parameters)}] -> rc=-2");
                 peer.SendResponse(new OperationResponse(request.OperationCode, -2, "Unknown operation", new()));
                 break;
         }
@@ -99,16 +107,24 @@ public sealed class GameServerHandler : IOperationHandler
     {
         var name = r.Parameters.TryGetValue(PRoomName, out var n) ? n.ToString()! : "room";
         var realm = _realms?.Get(name);
+        Log.Debug("GameServer", $"EnterRoom name=\"{name}\" realm={(realm is null ? "<none>" : $"{realm.Name} enabled={realm.IsEnabled} pwd={(realm.Password.Length > 0)}")}");
 
         // When realms are configured, only known+enabled realms are joinable, and a locked
         // realm requires the matching password. (No realms configured = open, for tests.)
         if (_realms is not null && (realm is null || !realm.IsEnabled))
+        {
+            Log.Warn("GameServer", $"EnterRoom rejected \"{name}\": no such realm / disabled -> rc=-4");
             return (new OperationResponse(r.OperationCode, -4, "No such realm", new()), new EventData(EvJoin, new()));
+        }
         if (realm is not null && realm.Password.Length > 0 && joinPassword != realm.Password)
+        {
+            Log.Warn("GameServer", $"EnterRoom rejected \"{name}\": wrong password -> rc=-5");
             return (new OperationResponse(r.OperationCode, -5, "Wrong password", new()), new EventData(EvJoin, new()));
+        }
 
         var room = _registry.GetOrCreate(name);
         int actor = room.AddActor();
+        Log.Info("GameServer", $"EnterRoom \"{name}\" actor={actor} occupants=[{string.Join(",", room.ActorNumbers)}]");
 
         // Stamp the realm ruleset into the room's game properties so the client sees it in-room.
         var gameProps = new Dictionary<object, object>();
@@ -121,6 +137,7 @@ public sealed class GameServerHandler : IOperationHandler
 
         var motdText = _motd?.Resolve(realm);
         if (!string.IsNullOrWhiteSpace(motdText)) gameProps["motd"] = motdText!;
+        Log.Debug("GameServer", $"EnterRoom gameProps={PhotonNames.Value(gameProps)} motd={(motdText is null ? "<none>" : $"\"{motdText}\"")}");
 
         var response = new OperationResponse(r.OperationCode, 0, null, new()
         {
@@ -171,6 +188,8 @@ public sealed class GameServerHandler : IOperationHandler
         var isChat = method == "ReceiveChatMessage" || (method is null && isShortcutRpc);
         if (!isChat) return null;
 
+        Log.Info("GameServer", $"chat command intercepted: \"{text}\" (room=\"{roomName}\", " +
+                               $"method={(method ?? "<shortcut>")})");
         if (text.Equals("/motd", StringComparison.OrdinalIgnoreCase))
         {
             var realm = roomName is not null ? _realms?.Get(roomName) : null;
