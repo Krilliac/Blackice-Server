@@ -11,7 +11,12 @@ namespace BlackIce.Server.LoadBalancing;
 public sealed class GameServerHandler : IOperationHandler
 {
     private const byte OpAuthenticate = 230, OpCreateGame = 227, OpJoinGame = 226;
+    private const byte OpRaiseEvent = 253;
+    private const byte PEventCode = 244, PData = 245;     // RaiseEvent: event code + data/CustomData
     private const byte EvJoin = 255;
+    private const byte EvServerMessage = 199;             // our server->client message channel
+    private const byte PunRpcEvent = 200;                 // PUN's RPC event code
+    private const byte RpcMethodName = 3, RpcParams = 4;  // PUN RPC hashtable keys
     private const byte PRoomName = 255, PSecret = 221, PActorNr = 254, PActorList = 252,
                        PGameProperties = 248, PActorProperties = 249;
 
@@ -118,6 +123,10 @@ public sealed class GameServerHandler : IOperationHandler
         });
         return (response, join);
     }
+
+    /// <summary>Builds a ServerMessage event: a server->client text line the BlackIce.Motd plugin renders.</summary>
+    public static EventData ServerMessageEvent(string text) =>
+        new(EvServerMessage, new() { { PData, text } });
 
     /// <summary>Reads a join password from the request's GameProperties hashtable, if present.</summary>
     private static string? ExtractJoinPassword(OperationRequest r)
