@@ -20,5 +20,8 @@ public static class Oracle
     /// <summary>Deserializes a single typed value using the real Photon codec.</summary>
     public static object? Deserialize(byte[] bytes) => Protocol.Deserialize(bytes);
 
+    /// <summary>Parses a full message (request/response/event) using the real Photon codec.</summary>
+    public static object DeserializeMessage(byte[] bytes) => Protocol.DeserializeMessage(new StreamBuffer(bytes));
+
     public static string Hex(byte[] b) => BitConverter.ToString(b);
 }
