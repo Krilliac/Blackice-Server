@@ -52,6 +52,8 @@ public sealed class GpBinaryReader
             case GpType.CompressedLong: return DecodeZigZag64(ReadUVarInt64());
             case GpType.ByteArray: return ReadByteArrayBody();
             case GpType.IntArray: return ReadIntArrayBody();
+            case GpType.StringArray: return ReadStringArrayBody();
+            case GpType.ObjectArray: return ReadObjectArrayBody();
             case GpType.Hashtable: return ReadHashtableBody();
             default: throw new NotSupportedException($"GpBinary v1.8 read not implemented for type {type}");
         }
@@ -85,15 +87,33 @@ public sealed class GpBinaryReader
         return a;
     }
 
-    private Dictionary<byte, object> ReadHashtableBody()
+    private string[] ReadStringArrayBody()
     {
+        int len = (int)ReadUVarInt();
+        var a = new string[len];
+        for (int i = 0; i < len; i++) a[i] = ReadStringBody();
+        return a;
+    }
+
+    private object?[] ReadObjectArrayBody()
+    {
+        int len = (int)ReadUVarInt();
+        var a = new object?[len];
+        for (int i = 0; i < len; i++) a[i] = ReadTyped();
+        return a;
+    }
+
+    private Dictionary<object, object> ReadHashtableBody()
+    {
+        // Photon Hashtable keys/values are arbitrary typed objects (room properties mix string
+        // keys like "RandomSeed"/"PVP" with byte keys), so preserve the real key types.
         int count = (int)ReadUVarInt();
-        var d = new Dictionary<byte, object>(count);
+        var d = new Dictionary<object, object>(count);
         for (int i = 0; i < count; i++)
         {
             var key = ReadTyped();
             var val = ReadTyped();
-            d[Convert.ToByte(key)] = val!;
+            if (key is not null) d[key] = val!;
         }
         return d;
     }

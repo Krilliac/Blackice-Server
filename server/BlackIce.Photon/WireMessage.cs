@@ -9,11 +9,25 @@ namespace BlackIce.Photon;
 public static class WireMessage
 {
     public const byte Magic = 0xF3;
+    public const byte MagicAlt = 0xFD;   // the client also accepts 253 as a message magic
     public const byte EncryptedFlag = 0x80;
 
     // EgMessageType
-    public const byte Operation = 2, OperationResponse = 3, Event = 4,
+    public const byte Init = 0, InitResponse = 1, Operation = 2, OperationResponse = 3, Event = 4,
                       InternalOperationRequest = 6, InternalOperationResponse = 7;
+
+    /// <summary>The 2-byte InitResponse the client waits for before establishing encryption.</summary>
+    public static byte[] InitResponseMessage() => new[] { Magic, InitResponse };
+
+    /// <summary>True if the buffer is a Photon message; yields the (decrypted-flag-stripped) message type.</summary>
+    public static bool TryPeekType(byte[] data, out byte messageType, out bool encrypted)
+    {
+        messageType = 0; encrypted = false;
+        if (data.Length < 2 || (data[0] != Magic && data[0] != MagicAlt)) return false;
+        encrypted = (data[1] & EncryptedFlag) != 0;
+        messageType = (byte)(data[1] & ~EncryptedFlag);
+        return true;
+    }
 
     /// <summary>A parsed inbound message: its kind, opcode/event-code, and parameter table.</summary>
     public sealed record Parsed(byte MessageType, byte Code, Dictionary<byte, object> Parameters);
@@ -70,7 +84,7 @@ public static class WireMessage
     /// </summary>
     public static Parsed Parse(byte[] data, Func<byte[], byte[]>? decrypt = null)
     {
-        if (data.Length < 2 || data[0] != Magic)
+        if (data.Length < 2 || (data[0] != Magic && data[0] != MagicAlt))
             throw new InvalidOperationException($"Not a Photon message (magic={data.ElementAtOrDefault(0):X2})");
 
         byte rawType = data[1];

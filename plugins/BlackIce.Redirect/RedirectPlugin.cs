@@ -39,7 +39,9 @@ internal static class ConnectRedirectPatch
         settings.Server = RedirectPlugin.ServerAddress.Value;
         settings.Port = RedirectPlugin.ServerPort.Value;
         settings.UseNameServer = true;   // client walks Name -> Master -> Game against us
-        settings.FixedRegion = "";       // skip region pinging; connect straight to our Name Server
-        RedirectPlugin.Log.LogInfo($"Redirecting Photon connect -> {settings.Server}:{settings.Port}");
+        // Keep the game's FixedRegion (already set, e.g. "us"): a non-empty fixed region makes the
+        // client authenticate directly on our Name Server instead of asking for a region list.
+        if (string.IsNullOrEmpty(settings.FixedRegion)) settings.FixedRegion = "us";
+        RedirectPlugin.Log.LogInfo($"Redirecting Photon connect -> {settings.Server}:{settings.Port} (region '{settings.FixedRegion}')");
     }
 }

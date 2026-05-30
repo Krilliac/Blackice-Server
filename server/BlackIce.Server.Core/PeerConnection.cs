@@ -44,6 +44,21 @@ public sealed class PeerConnection
 
     private void HandleAppPayload(byte[] payload)
     {
+        if (!WireMessage.TryPeekType(payload, out var type, out _))
+        {
+            Console.Error.WriteLine($"[{Remote}] dropped non-Photon payload");
+            return;
+        }
+
+        // Init handshake: a fixed 41-byte blob naming the target app. The client only needs a
+        // 2-byte InitResponse back before it proceeds to encryption + authentication.
+        if (type == WireMessage.Init)
+        {
+            Console.WriteLine($"[{Remote}] Init -> InitResponse");
+            SendRaw(WireMessage.InitResponseMessage());
+            return;
+        }
+
         WireMessage.Parsed msg;
         try
         {
@@ -57,10 +72,12 @@ public sealed class PeerConnection
 
         if (msg is { MessageType: WireMessage.InternalOperationRequest, Code: 0 })
         {
+            Console.WriteLine($"[{Remote}] InitEncryption -> deriving shared key");
             EstablishEncryption(msg.Parameters);
             return;
         }
 
+        Console.WriteLine($"[{Remote}] op {msg.Code} ({msg.Parameters.Count} params)");
         _handler.OnOperationRequest(this, new OperationRequest(msg.Code, msg.Parameters));
     }
 
