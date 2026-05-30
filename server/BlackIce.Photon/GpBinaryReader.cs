@@ -23,8 +23,11 @@ public sealed class GpBinaryReader
     public object? ReadTyped()
     {
         byte type = _data[_pos++];
+        // CustomTypeSlim: type bytes 128..228 encode a registered custom type, code = type - 128.
+        if (type is >= 128 and <= 228) return ReadCustom((byte)(type - 128));
         switch (type)
         {
+            case GpType.Custom: return ReadCustom(_data[_pos++]);   // explicit custom: code byte follows
             case GpType.Null: return null;
             case GpType.BooleanFalse: return false;
             case GpType.BooleanTrue: return true;
@@ -101,6 +104,16 @@ public sealed class GpBinaryReader
         var a = new object?[len];
         for (int i = 0; i < len; i++) a[i] = ReadTyped();
         return a;
+    }
+
+    // Custom type: [code already read][length varint][length bytes]. Preserved verbatim.
+    private PhotonCustomData ReadCustom(byte code)
+    {
+        int len = (int)ReadUVarInt();
+        var data = new byte[len];
+        Array.Copy(_data, _pos, data, 0, len);
+        _pos += len;
+        return new PhotonCustomData(code, data);
     }
 
     private Dictionary<object, object> ReadHashtableBody()

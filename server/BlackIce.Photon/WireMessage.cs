@@ -98,16 +98,25 @@ public static class WireMessage
             body = decrypt(body);
         }
 
-        var r = new GpBinaryReader(body);
-        byte code = r.ReadByte();
-        // Responses carry returnCode+debug before the table; requests/events do not.
-        if (messageType is OperationResponse or InternalOperationResponse)
+        try
         {
-            r.ReadInt16();      // returnCode
-            r.ReadTyped();      // debug message
+            var r = new GpBinaryReader(body);
+            byte code = r.ReadByte();
+            // Responses carry returnCode+debug before the table; requests/events do not.
+            if (messageType is OperationResponse or InternalOperationResponse)
+            {
+                r.ReadInt16();      // returnCode
+                r.ReadTyped();      // debug message
+            }
+            var table = ReadTable(r);
+            return new Parsed(messageType, code, table);
         }
-        var table = ReadTable(r);
-        return new Parsed(messageType, code, table);
+        catch (Exception ex)
+        {
+            // Surface the decrypted body so an unhandled structure can be pinpointed.
+            throw new InvalidOperationException(
+                $"body parse failed (msgType {messageType}, {body.Length}B): {BitConverter.ToString(body)} :: {ex.Message}");
+        }
     }
 
     private static Dictionary<byte, object> ReadTable(GpBinaryReader r)

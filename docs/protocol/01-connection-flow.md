@@ -50,3 +50,24 @@ A reimplemented server must, at minimum:
 Redirecting the client to that server requires changing the AppId/region/server endpoint —
 either by patching the baked `PhotonServerSettings` asset or by DNS/hosts redirection of the
 Name Server hostname (decision deferred to Phase 1).
+
+## Verified against BlackIce.Server (Phase 1) — 2026-05-30
+
+The real client reaches the in-room state through the reimplemented server. Observed,
+end to end, with Photon Cloud never contacted:
+
+```
+NameServer:5058   CONNECT/VERIFYCONNECT, Init->InitResponse (F3 00 -> F3 01),
+                  Diffie-Hellman key exchange, Authenticate -> Master address
+MasterServer:5055 Authenticate (token), JoinLobby, GameList, CreateGame -> Game address
+GameServer:5056   Authenticate (token), CreateGame -> actor + **Join (event 255)**
+                  then the client streams RaiseEvent (op 253) gameplay (player spawn at a
+                  Vector3 custom type, movement) — confirming it is in the room.
+```
+
+Wire details confirmed live (beyond the Phase 0 capture):
+- A message = `[0xF3|0xFD][EgMessageType (|0x80 if AES-encrypted)][body]`.
+- **Init** is a fixed 41-byte blob `F3 00 [protoVer:2][sdkId][clientVer:3][00][appID:32B]`; the
+  server replies with the 2-byte **InitResponse** `F3 01` to unblock the client.
+- Encryption is mandatory on every server (AuthMode=Auth): Oakley-768 DH then AES-256-CBC.
+- Custom types use CustomTypeSlim (type byte 128..228, code = byte-128): e.g. PUN Vector3 = 86.

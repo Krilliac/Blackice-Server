@@ -56,6 +56,23 @@ public class GpBinaryTests
         Assert.NotNull(decoded);
     }
 
+    [Fact]
+    public void Reads_custom_type_slim_without_desync()
+    {
+        // A CustomTypeSlim value (PUN Vector3 = code 86 => type byte 0x80+86=0xD6), 12 bytes,
+        // followed by a trailing marker we must still be aligned to read.
+        var vec3 = new byte[] { 0x3F, 0x80, 0, 0, 0x3F, 0xC0, 0, 0, 0x3F, 0x80, 0, 0 };
+        var bytes = new List<byte> { 0x80 + 86, 12 };
+        bytes.AddRange(vec3);
+        bytes.Add(GpType.Byte); bytes.Add(7);   // trailing byte value to prove alignment
+
+        var r = new GpBinaryReader(bytes.ToArray());
+        var custom = Assert.IsType<PhotonCustomData>(r.ReadTyped());
+        Assert.Equal(86, custom.Code);
+        Assert.Equal(vec3, custom.Data);
+        Assert.Equal((byte)7, r.ReadTyped());    // still aligned
+    }
+
     private static void AssertValueEqual(object expected, object? actual)
     {
         if (expected is byte[] eb) Assert.Equal(eb, (byte[])actual!);
