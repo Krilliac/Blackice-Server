@@ -42,7 +42,12 @@ public sealed class ConsoleCommandProcessor
                 return $"global MOTD set: {rest}";
             case "realmmotd" when _motd is not null && parts.Length >= 3:
                 var realmName = parts[1];
-                var text = trimmed[(trimmed.IndexOf(realmName, StringComparison.Ordinal) + realmName.Length)..].Trim();
+                // text = everything after the realm token. Slice from `rest`
+                // ("<realm> <text>") rather than content-searching the raw line,
+                // which would mis-match if the realm name occurs earlier (e.g.
+                // a realm whose name is a substring of "realmmotd"). The
+                // parts.Length >= 3 guard guarantees a space exists in `rest`.
+                var text = rest[(rest.IndexOf(' ') + 1)..].Trim();
                 return _motd.SetRealm(realmName, text)
                     ? $"{realmName} MOTD set: {text}" : $"no such realm: {realmName}";
             case "help":
