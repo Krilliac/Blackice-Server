@@ -80,9 +80,10 @@ public sealed class GameServerHandler : IOperationHandler
                 // is what a real Photon server does for a fire-and-forget RaiseEvent.
                 break;
             default:
-                // The live client sends ops we don't implement yet (e.g. OpSetProperties=252).
-                // Photon answers unknown ops with an error response; the PUN client treats these
-                // as non-fatal, but log them so we can see what the game expects.
+                // Any in-room op we don't implement yet. NOTE: a -2 here is NOT harmless — a live
+                // capture showed the client abandons the room (back to main menu) when an in-room op
+                // it expects (e.g. OpSetProperties, now handled above) is rejected. The Warn log
+                // names exactly which op the game still needs so we can implement it.
                 Log.Warn("GameServer", $"{peer.Remote} unhandled {PhotonNames.Op(request.OperationCode)} " +
                                        $"[{PhotonNames.Params(request.Parameters)}] -> rc=-2");
                 peer.SendResponse(new OperationResponse(request.OperationCode, -2, "Unknown operation", new()));
