@@ -50,3 +50,11 @@ spike.
 - Connect is triggered by a MENU action (Play/Connect), NOT pure startup — autonomous headless
   integration can't click it. Registry: HKCU\Software\SuperDuperGameCompany\Black Ice.
 - AuthMode defaults to Auth, so encryption (DH) is still established even on the LAN/Master path.
+
+## Platform SP1 verified — 2026-05-30
+Live: client mod reads SteamID from registry (HKCU\Software\Valve\Steam\ActiveProcess\ActiveUser
+-> SteamID64 = 0x0110000100000000 + accountId) and sends it as the Photon UserId; the server
+auto-creates a persistent Account (+Profile) at level Player keyed by that SteamID (SQLite
+blackice.db). Bootstrap code printed on first start; console promote/ban/list working.
+Note: Steamworks.SteamUser.GetSteamID() throws "not initialized" inside the BepInEx plugin
+context — registry read is the reliable path.

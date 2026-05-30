@@ -45,14 +45,41 @@ internal static class ConnectRedirectPatch
 
         // Send the real SteamID as the Photon UserId so the server can key a persistent account
         // to it. Without this the server only sees a chosen character name.
-        try
+        var steamId = ResolveSteamId();
+        if (steamId is not null)
         {
-            var steamId = Steamworks.SteamUser.GetSteamID().m_SteamID.ToString();
             PhotonNetwork.AuthValues = new Photon.Realtime.AuthenticationValues(steamId);
             RedirectPlugin.Log.LogInfo($"Sending SteamID {steamId} as Photon UserId");
         }
-        catch (System.Exception ex) { RedirectPlugin.Log.LogWarning($"SteamID unavailable: {ex.Message}"); }
+        else RedirectPlugin.Log.LogWarning("SteamID unavailable; server will assign a fallback identity.");
 
         RedirectPlugin.Log.LogInfo($"Redirecting Photon connect -> {settings.Server}:{settings.Port} (region '{settings.FixedRegion}')");
+    }
+
+    /// <summary>
+    /// Resolves the logged-in user's SteamID64. Primary: the Steam registry key (context-independent).
+    /// Fallback: the Steamworks API if it happens to be initialized in this context.
+    /// </summary>
+    private static string? ResolveSteamId()
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("reg",
+                @"query HKCU\Software\Valve\Steam\ActiveProcess /v ActiveUser")
+            { RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true };
+            using var p = System.Diagnostics.Process.Start(psi);
+            var outp = p!.StandardOutput.ReadToEnd();
+            p.WaitForExit();
+            var m = System.Text.RegularExpressions.Regex.Match(outp, @"0x([0-9a-fA-F]+)");
+            if (m.Success)
+            {
+                uint accountId = System.Convert.ToUInt32(m.Groups[1].Value, 16);
+                if (accountId != 0) return (76561197960265728UL + accountId).ToString();
+            }
+        }
+        catch (System.Exception ex) { RedirectPlugin.Log.LogWarning($"registry SteamID read failed: {ex.Message}"); }
+
+        try { return Steamworks.SteamUser.GetSteamID().m_SteamID.ToString(); }
+        catch { return null; }
     }
 }
