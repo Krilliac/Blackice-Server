@@ -32,9 +32,13 @@ public sealed class NameServerHandler : IOperationHandler
     public void OnOperationRequest(PeerConnection peer, OperationRequest request)
     {
         if (request.OperationCode == OpAuthenticate)
+        {
             peer.SendResponse(Authenticate(request));
-        else
-            peer.SendResponse(new OperationResponse(request.OperationCode, -2, "Unsupported on Name Server", new()));
+            return;
+        }
+        Log.Warn("NameServer", $"{peer.Remote} unhandled {PhotonNames.Op(request.OperationCode)} " +
+                               $"[{PhotonNames.Params(request.Parameters)}] -> rc=-2");
+        peer.SendResponse(new OperationResponse(request.OperationCode, -2, "Unsupported on Name Server", new()));
     }
 
     public OperationResponse Authenticate(OperationRequest request)
@@ -47,9 +51,14 @@ public sealed class NameServerHandler : IOperationHandler
         var claimed = request.Parameters.TryGetValue(PUserId, out var u) && u is string s ? s : null;
         var steamId = SteamId.IsValidIndividual(claimed) ? claimed! : Guid.NewGuid().ToString();
 
+        Log.Info("NameServer", $"authenticate: claimed UserId={(claimed is null ? "<none>" : $"\"{claimed}\"")} " +
+                               $"-> steamId={steamId}{(SteamId.IsValidIndividual(claimed) ? "" : " (fallback guid)")}");
         var account = _accounts.ResolveOrCreate(steamId, steamId);
         if (account.IsBanned)
+        {
+            Log.Warn("NameServer", $"{steamId} is BANNED -> rc=-3");
             return new OperationResponse(OpAuthenticate, -3, "Account banned", new());
+        }
 
         return new OperationResponse(OpAuthenticate, 0, null, new()
         {
