@@ -146,4 +146,34 @@ public class TransportTests
         Assert.Equal((byte)0, c1.Flags);
         Assert.True(c2.UnreliableSequenceNumber > c1.UnreliableSequenceNumber, "per-channel unreliable seq must advance");
     }
+
+    [Fact]
+    public void Type7_serializes_to_exact_wire_bytes()
+    {
+        // Byte-exact against the real Photon3Unity3D transport (verified by interop review):
+        // 16-byte header (extra unreliableSeq int32 BE at offset 12), length includes it.
+        var c = new NCommand(NCommand.SendUnreliable, ChannelId: 0, Flags: 0, ReservedByte: 4,
+                             ReliableSequenceNumber: 0x11223344, Payload: new byte[] { 0xF3, 0x04, 0xAA, 0xBB, 0xCC })
+                { UnreliableSequenceNumber = 0x55667788 };
+        var expected = new byte[]
+        {
+            0x07, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x15,
+            0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+            0xF3, 0x04, 0xAA, 0xBB, 0xCC,
+        };
+        Assert.Equal(expected, c.ToBytes());
+    }
+
+    [Fact]
+    public void Type6_serializes_to_exact_wire_bytes()
+    {
+        var c = new NCommand(NCommand.SendReliable, ChannelId: 0, Flags: NCommand.FlagReliable, ReservedByte: 4,
+                             ReliableSequenceNumber: 5, Payload: new byte[] { 0x01, 0x02, 0x03 });
+        var expected = new byte[]
+        {
+            0x06, 0x00, 0x01, 0x04, 0x00, 0x00, 0x00, 0x0F,
+            0x00, 0x00, 0x00, 0x05, 0x01, 0x02, 0x03,
+        };
+        Assert.Equal(expected, c.ToBytes());
+    }
 }
