@@ -18,7 +18,9 @@ public sealed class GameServerHandler : IOperationHandler
     private const byte EvJoin = 255;
     private const byte EvServerMessage = 199;             // our server->client message channel
     private const byte PunRpcEvent = 200;                 // PUN's RPC event code
-    private const byte RpcMethodName = 3, RpcParams = 4;  // PUN RPC hashtable keys
+    private const byte RpcMethodName = 3, RpcParams = 4;  // PUN RPC hashtable keys (method name / args)
+    private const byte RpcMethodShortcut = 5;             // PUN sends a byte index here instead of the name
+                                                          // when the method is in the project's RpcList
     private const byte PRoomName = 255, PSecret = 221, PActorNr = 254, PActorList = 252,
                        PGameProperties = 248, PActorProperties = 249;
 
@@ -142,6 +144,14 @@ public sealed class GameServerHandler : IOperationHandler
     /// Inspects an inbound RaiseEvent (op 253). If it is a chat RPC whose text is a "/command",
     /// returns the ServerMessage to send back and the caller must NOT relay it. Returns null for
     /// non-commands (normal chat / other events) so future relay logic handles them.
+    ///
+    /// PUN serializes the RPC method either as the string name (key 3) or, when the method is in
+    /// the project's RpcList, as a byte shortcut index (key 5). The shortcut index lives in the
+    /// game's PhotonServerSettings asset, not in code, so we cannot resolve it statically. We
+    /// therefore only ever intercept "/"-prefixed text (which only player chat carries): a named
+    /// "ReceiveChatMessage" RPC, or a shortcut RPC (no name, key 5 present) whose first arg is a
+    /// "/command". This works regardless of the shortcut index and leaves all normal RPCs and
+    /// normal chat untouched. (B5 live capture should confirm no other RPC sends "/"-leading text.)
     /// </summary>
     public EventData? TryHandleChatCommand(string? roomName, OperationRequest req)
     {
@@ -150,9 +160,13 @@ public sealed class GameServerHandler : IOperationHandler
         if (!req.Parameters.TryGetValue(PData, out var d) || d is not IDictionary rpc) return null;
 
         var method = rpc.Contains(RpcMethodName) ? rpc[RpcMethodName] as string : null;
+        var isShortcutRpc = rpc.Contains(RpcMethodShortcut);
         var args = rpc.Contains(RpcParams) ? rpc[RpcParams] as object[] : null;
         var text = (args is { Length: > 0 } ? args[0] as string : null)?.Trim();
-        if (method != "ReceiveChatMessage" || string.IsNullOrEmpty(text) || text![0] != '/') return null;
+
+        if (string.IsNullOrEmpty(text) || text![0] != '/') return null;          // only intercept /commands
+        var isChat = method == "ReceiveChatMessage" || (method is null && isShortcutRpc);
+        if (!isChat) return null;
 
         if (text.Equals("/motd", StringComparison.OrdinalIgnoreCase))
         {

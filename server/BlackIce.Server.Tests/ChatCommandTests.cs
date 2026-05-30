@@ -18,6 +18,18 @@ public class ChatCommandTests
             } },
     });
 
+    /// <summary>Chat RPC in PUN's shortcut form: method as a byte index at key 5 (no key-3 name).</summary>
+    private static OperationRequest ShortcutChatRpc(string text, byte shortcutIndex = 7) => new(253, new()
+    {
+        { 244, (byte)200 },
+        { 245, new Dictionary<object, object>
+            {
+                { (byte)0, 1001 },              // viewID
+                { (byte)5, shortcutIndex },     // method shortcut index (no string name)
+                { (byte)4, new object[] { text } },
+            } },
+    });
+
     private static GameServerHandler Handler(out TestDb db)
     {
         db = new TestDb();
@@ -71,5 +83,28 @@ public class ChatCommandTests
             var notChat = new OperationRequest(253, new() { { 244, (byte)201 }, { 245, new Dictionary<object, object>() } });
             Assert.Null(h.TryHandleChatCommand("co-op", notChat));
         }
+    }
+
+    // PUN sends RPCs in the project's RpcList as a byte shortcut (key 5) instead of the string
+    // name (key 3). The live client almost certainly chats via the shortcut form, so /commands
+    // must be recognized there too — see B3 finding.
+    [Fact]
+    public void Shortcut_form_slash_motd_is_recognized()
+    {
+        var h = Handler(out var db);
+        using (db)
+        {
+            var ev = h.TryHandleChatCommand("co-op", ShortcutChatRpc("/motd"));
+            Assert.NotNull(ev);
+            Assert.Equal("Daily news: the Ice grows.", ev!.Parameters[245]);
+        }
+    }
+
+    [Fact]
+    public void Shortcut_form_plain_chat_is_not_intercepted()
+    {
+        var h = Handler(out var db);
+        using (db)
+            Assert.Null(h.TryHandleChatCommand("co-op", ShortcutChatRpc("hello everyone")));
     }
 }
