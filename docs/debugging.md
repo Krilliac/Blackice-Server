@@ -30,10 +30,37 @@ earn their keep on this target.
   failure). NuGet/`dotnet` restore is unaffected.
 
 ## Mono soft debugger
-*(Recipe verified in Task 3 — fill in the method that worked.)*
+Enabled via `<GAME>/Black Ice_Data/boot.config` (backed up as `boot.config.bak`):
+
+```
+player-connection-debug=1
+wait-for-managed-debugger=0
+```
+
+dnSpyEx attaches through Unity's PlayerConnection discovery — open
+`Assembly-CSharp.dll` in dnSpyEx, then **Debug > Start Debugging > Unity** (or
+**Attach to Process > Unity**). Confirm by breakpointing a hot method such as
+`MouseLook.Update` and moving the mouse in-game (one-time manual check; the game's
+own input is required, so it is not part of the automated run).
+
+> Do **not** also pass `MONO_ENV_OPTIONS=--debugger-agent=...` with a fixed port — it
+> conflicts with `player-connection-debug` and the player exits on launch. Use one or the
+> other; the boot.config path above is the supported one.
 
 ## GDB native attach
-*(Recipe verified in Task 3 — fill in the exact pid command + observed output.)*
+Verified working (gdb 17.2). The game is launched first, then:
+
+```bash
+GDB=".../mingw64/bin/gdb.exe"
+BCPID=$(powershell.exe -NoProfile -Command "(Get-Process 'Black Ice' | Select -First 1).Id" | tr -d '\r')
+"$GDB" -p "$BCPID" -batch -ex "info sharedlibrary mono-2.0" -ex "bt" -ex "detach"
+```
+
+gdb attaches, enumerates all game threads, lists `mono-2.0-bdwgc.dll`, prints a native
+backtrace, and detaches cleanly (exit 0). Managed assemblies (`Assembly-CSharp`, Photon
+DLLs) are Mono images, **not** native modules, so they do not appear in the shared-library
+or process-module lists — only `mono-2.0-bdwgc.dll` does. Use gdb for native/runtime/Steam
+crash triage; use dnSpyEx for managed game logic.
 
 ## Future server (Phase 1+)
 - `dotnet-trace` / `dotnet-dump` + lldb-SOS for managed debugging; gdb/gdbserver for native
