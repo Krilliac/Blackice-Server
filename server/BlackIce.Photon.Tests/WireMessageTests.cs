@@ -39,6 +39,32 @@ public class WireMessageTests
     }
 
     [Fact]
+    public void Client_parses_our_gamelist_event_with_room_and_custom_props()
+    {
+        // Mirrors MasterServerHandler.BuildGameListEvent: event 230, param 222 = { roomName -> props },
+        // props mixing well-known byte keys with the custom string keys the room-browser reads.
+        var props = new Dictionary<object, object>
+        {
+            { (byte)253, true }, { (byte)254, true }, { (byte)252, (byte)0 }, { (byte)255, (byte)8 },
+            { "PVP", false }, { "HackDifficultyIncrease", 0 }, { "Password", "" },
+        };
+        var rooms = new Dictionary<string, object> { { "[CUSTOM SERVER] Test Room", props } };
+        var wire = WireMessage.EventMessage(new EventData(230, new() { { 222, rooms } }));
+
+        // Strip the [0xF3][msgType] wire frame and prepend the standalone EventData type byte (26)
+        // so the oracle's DeserializeMessage parses it (mirrors the response test).
+        var standalone = new byte[] { 26 }.Concat(wire[2..]).ToArray();
+        var ev = (ExitGames.Client.Photon.EventData)Oracle.DeserializeMessage(standalone);
+        Assert.Equal(230, ev.Code);
+        var parsedRooms = (ExitGames.Client.Photon.Hashtable)ev.Parameters[222];
+        Assert.True(parsedRooms.ContainsKey("[CUSTOM SERVER] Test Room"));
+        var parsedProps = (ExitGames.Client.Photon.Hashtable)parsedRooms["[CUSTOM SERVER] Test Room"];
+        Assert.Equal(false, parsedProps["PVP"]);
+        Assert.Equal(0, parsedProps["HackDifficultyIncrease"]);
+        Assert.Equal(true, parsedProps[(byte)253]);
+    }
+
+    [Fact]
     public void Roundtrip_internal_request_for_init_encryption()
     {
         // InitEncryption: InternalOperationRequest (6), op 0, ClientKey(1) = public key bytes.

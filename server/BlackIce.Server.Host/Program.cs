@@ -12,11 +12,17 @@ const string secret = "change-me-phase1";
 // deployment that should require the full Name Server token flow.
 bool allowAnonymousLan = !args.Contains("--require-token");
 
+// Always-on test room: advertised in the lobby browser and joinable. Its obviously-custom name
+// is your proof you're on this server and not Photon Cloud (no such room can exist on live).
+const string testRoomName = "[CUSTOM SERVER] Test Room";
+
 var registry = new RoomRegistry();
+registry.GetOrCreate(testRoomName);   // exists from startup (always on)
+
 var listeners = new[]
 {
     new UdpListener("NameServer", 5058, new NameServerHandler($"{advertised}:5055", secret)),
-    new UdpListener("MasterServer", 5055, new MasterServerHandler($"{advertised}:5056", secret, registry, allowAnonymousLan)),
+    new UdpListener("MasterServer", 5055, new MasterServerHandler($"{advertised}:5056", secret, registry, allowAnonymousLan, testRoomName)),
     new UdpListener("GameServer", 5056, new GameServerHandler(secret, registry, allowAnonymousLan)),
 };
 

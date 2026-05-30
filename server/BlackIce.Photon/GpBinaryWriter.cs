@@ -36,7 +36,7 @@ public sealed class GpBinaryWriter
             case string str: _buf.Add(GpType.String); WriteStringBody(str); break;
             case byte[] ba: _buf.Add(GpType.ByteArray); WriteUVarInt((uint)ba.Length); _buf.AddRange(ba); break;
             case int[] ia: _buf.Add(GpType.IntArray); WriteIntArrayBody(ia); break;
-            case Dictionary<byte, object> ht: _buf.Add(GpType.Hashtable); WriteHashtableBody(ht); break;
+            case System.Collections.IDictionary dict: _buf.Add(GpType.Hashtable); WriteHashtableBody(dict); break;
             default: throw new NotSupportedException($"GpBinary v1.8 write not implemented for {value.GetType()}");
         }
         return this;
@@ -55,11 +55,12 @@ public sealed class GpBinaryWriter
         foreach (var n in arr) WriteUVarInt(EncodeZigZag32(n));
     }
 
-    // A byte-keyed parameter table written as a Hashtable value: count byte, then key+typed value.
-    private void WriteHashtableBody(Dictionary<byte, object> map)
+    // A Photon Hashtable value: count, then each entry as [typed key][typed value]. Keys may be
+    // bytes (room/actor properties) or strings (e.g. the lobby room list maps room name -> props).
+    private void WriteHashtableBody(System.Collections.IDictionary map)
     {
         WriteUVarInt((uint)map.Count);
-        foreach (var kv in map) { WriteTyped(kv.Key); WriteTyped(kv.Value); }
+        foreach (System.Collections.DictionaryEntry e in map) { WriteTyped(e.Key); WriteTyped(e.Value!); }
     }
 
     internal static uint EncodeZigZag32(int v) => (uint)((v << 1) ^ (v >> 31));

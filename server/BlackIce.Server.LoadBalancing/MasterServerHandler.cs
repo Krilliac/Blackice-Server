@@ -11,23 +11,30 @@ public sealed class MasterServerHandler : IOperationHandler
 {
     private const byte OpAuthenticate = 230, OpJoinLobby = 229, OpCreateGame = 227, OpJoinGame = 226;
     private const byte EvGameList = 230;
-    private const byte PAddress = 230, PSecret = 221, PRoomName = 255, PGameList = 1;
+    private const byte PAddress = 230, PSecret = 221, PRoomName = 255, PGameListMap = 222;
+
+    // Well-known room properties shown in the lobby room browser.
+    private const byte RoomIsVisible = 254, RoomIsOpen = 253, RoomPlayerCount = 252, RoomMaxPlayers = 255;
 
     private readonly string _gameAddress;
     private readonly string _secret;
     private readonly RoomRegistry _registry;
     private readonly bool _allowAnonymousLan;
+    private readonly string? _testRoomName;
 
     /// <param name="allowAnonymousLan">
     /// When true, tokenless first-contact auth (the game's LAN mode) is accepted — but only from
     /// loopback/private-range peers. Defaults to false (secure): the full Name Server token is required.
     /// </param>
-    public MasterServerHandler(string gameAddress, string secret, RoomRegistry registry, bool allowAnonymousLan = false)
+    /// <param name="testRoomName">If set, this room is advertised in the lobby browser (an always-on room).</param>
+    public MasterServerHandler(string gameAddress, string secret, RoomRegistry registry,
+                               bool allowAnonymousLan = false, string? testRoomName = null)
     {
         _gameAddress = gameAddress;
         _secret = secret;
         _registry = registry;
         _allowAnonymousLan = allowAnonymousLan;
+        _testRoomName = testRoomName;
     }
 
     public void OnConnect(PeerConnection peer) { }
@@ -43,7 +50,7 @@ public sealed class MasterServerHandler : IOperationHandler
                 break;
             case OpJoinLobby:
                 peer.SendResponse(JoinLobby(request));
-                peer.RaiseEvent(new EventData(EvGameList, new() { { PGameList, new Dictionary<byte, object>() } }));
+                peer.RaiseEvent(BuildGameListEvent());
                 break;
             case OpCreateGame:
             case OpJoinGame:
@@ -77,6 +84,33 @@ public sealed class MasterServerHandler : IOperationHandler
     }
 
     public OperationResponse JoinLobby(OperationRequest r) => new(OpJoinLobby, 0, null, new());
+
+    /// <summary>
+    /// The lobby room list (event 230, param 222 = { roomName -> properties }). Advertises the
+    /// always-on test room so it appears in the in-game server browser as open and joinable.
+    /// </summary>
+    public EventData BuildGameListEvent()
+    {
+        var rooms = new Dictionary<string, object>();
+        if (_testRoomName is not null)
+        {
+            var room = _registry.GetOrCreate(_testRoomName);
+            // Mixed-key Hashtable: well-known byte props + the custom string props the in-game
+            // room-browser slot hard-casts (PVP:bool, HackDifficultyIncrease:int, Password:string).
+            // Omitting those makes the slot throw and the room silently fails to render.
+            rooms[_testRoomName] = new Dictionary<object, object>
+            {
+                { RoomIsOpen, true },
+                { RoomIsVisible, true },
+                { RoomPlayerCount, (byte)room.ActorNumbers.Count },
+                { RoomMaxPlayers, (byte)8 },
+                { "PVP", false },
+                { "HackDifficultyIncrease", 0 },
+                { "Password", "" },
+            };
+        }
+        return new EventData(EvGameList, new() { { PGameListMap, rooms } });
+    }
 
     public OperationResponse CreateGame(OperationRequest r)
     {

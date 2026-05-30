@@ -73,6 +73,24 @@ public class RoleHandlerTests
     }
 
     [Fact]
+    public void Master_advertises_test_room_in_gamelist()
+    {
+        var master = new MasterServerHandler("127.0.0.1:5056", Secret, new RoomRegistry(),
+                                             allowAnonymousLan: true, testRoomName: "[CUSTOM SERVER] Test Room");
+        var ev = master.BuildGameListEvent();
+
+        Assert.Equal(230, ev.Code);
+        var rooms = (Dictionary<string, object>)ev.Parameters[222];   // ParameterCode.GameList
+        Assert.True(rooms.ContainsKey("[CUSTOM SERVER] Test Room"));
+        var props = (Dictionary<object, object>)rooms["[CUSTOM SERVER] Test Room"];
+        Assert.Equal(true, props[(byte)253]);   // IsOpen
+        Assert.Equal(true, props[(byte)254]);   // IsVisible
+        // Custom props the in-game room-browser slot hard-casts — must be present or it throws.
+        Assert.Equal(false, props["PVP"]);
+        Assert.Equal(0, props["HackDifficultyIncrease"]);
+    }
+
+    [Fact]
     public void Game_enterroom_assigns_actor_and_raises_join()
     {
         var registry = new RoomRegistry();
