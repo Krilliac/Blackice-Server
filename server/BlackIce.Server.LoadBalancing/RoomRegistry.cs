@@ -24,5 +24,6 @@ public sealed class RoomRegistry
     private readonly ConcurrentDictionary<string, Room> _rooms = new();
 
     public Room GetOrCreate(string name) => _rooms.GetOrAdd(name, n => new Room { Name = n });
+    public Room? Find(string name) => _rooms.TryGetValue(name, out var r) ? r : null;
     public IReadOnlyCollection<Room> All => (IReadOnlyCollection<Room>)_rooms.Values;
 }
