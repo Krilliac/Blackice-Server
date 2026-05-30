@@ -11,8 +11,35 @@ to the server.
 
 ## Status
 
-**Phase 0 — Reconnaissance & Protocol Map.** Documenting the protocol and building the
-recon tooling. No server yet. See `docs/superpowers/plans/`.
+**Phase 1 — Photon transport + connect flow** (in progress, branch `phase1-connect`). The
+server foundation is built and tested: GpBinary v1.8 codec, eNet transport, Oakley-768 DH +
+AES encryption, UDP server core, and Name/Master/Game role handlers. See
+`docs/superpowers/plans/`.
+
+## Building & running (Visual Studio)
+
+Requires **Visual Studio 2022 (17.8+)** with the **.NET 8 SDK**, and a local copy of Black Ice
+(its DLLs are referenced for the test oracle and the BepInEx plugins).
+
+1. Open **`BlackIce.sln`** at the repo root — it contains the server and the client plugins.
+2. Set **`BlackIce.Server.Host`** as the startup project (right-click → *Set as Startup Project*).
+3. Press **F5**. Launch profiles are provided (Run/Debug dropdown):
+   - *BlackIce.Server (local LAN)* — advertises `127.0.0.1` (same-PC testing).
+   - *BlackIce.Server (advertise this PC on LAN)* — edit the IP in the profile to this machine's
+     LAN address so other PCs can connect.
+   - *BlackIce.Server (require Name Server token)* — disables anonymous LAN auth.
+
+Run tests via **Test → Run All Tests** (62 tests).
+
+### Connecting the game (LAN mode)
+
+Black Ice has a built-in LAN mode. With the server running: in the game, enable LAN mode and set
+the server IP/port (`127.0.0.1` / `5055`), then connect. The client walks Master → Game on your
+server. (The `BlackIce.Redirect` BepInEx plugin is an optional alternative that sets this via a
+config file.)
+
+Building the plugin projects copies their DLLs into the game's `BepInEx/plugins` folder
+automatically.
 
 ## Legal / scope
 

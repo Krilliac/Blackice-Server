@@ -15,4 +15,13 @@
     <Reference Include="PhotonRealtime"><HintPath>$(GameManaged)\PhotonRealtime.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="PhotonUnityNetworking"><HintPath>$(GameManaged)\PhotonUnityNetworking.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
+
+  <!-- Auto-deploy the built plugin into the game's BepInEx plugins folder. -->
+  <Target Name="DeployToBepInEx" AfterTargets="Build">
+    <PropertyGroup>
+      <BepInExPlugins>C:\Program Files (x86)\Steam\steamapps\common\Black Ice\BepInEx\plugins</BepInExPlugins>
+    </PropertyGroup>
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExPlugins)"
+          Condition="Exists('$(BepInExPlugins)')" SkipUnchangedFiles="true" />
+  </Target>
 </Project>
