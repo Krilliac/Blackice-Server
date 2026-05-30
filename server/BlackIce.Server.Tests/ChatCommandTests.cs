@@ -107,4 +107,22 @@ public class ChatCommandTests
         using (db)
             Assert.Null(h.TryHandleChatCommand("co-op", ShortcutChatRpc("hello everyone")));
     }
+
+    // A hostile peer can put a non-byte (or out-of-range) value under the event-code key 244.
+    // It must be treated as "not our RPC event" — ignored, never an exception (a real PUN client
+    // always sends the code as a GpBinary byte).
+    [Fact]
+    public void Malformed_event_code_is_ignored_not_thrown()
+    {
+        var h = Handler(out var db);
+        using (db)
+        {
+            var bad = new OperationRequest(253, new()
+            {
+                { 244, "not-a-byte" },
+                { 245, new Dictionary<object, object> { { (byte)3, "ReceiveChatMessage" }, { (byte)4, new object[] { "/motd" } } } },
+            });
+            Assert.Null(h.TryHandleChatCommand("co-op", bad));
+        }
+    }
 }
