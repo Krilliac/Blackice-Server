@@ -15,6 +15,7 @@ Console.WriteLine($"BlackIce.Server — DB {config.Database.Provider}, advertisi
 Console.WriteLine($"*** One-time bootstrap code (redeem in-game once available): {accounts.EnsureBootstrapCode()} ***");
 
 var realms = new RealmService(config.Database.CreateContext());
+var motd = new MotdService(config.Database.CreateContext());
 realms.SeedDefaults(config.Realms);
 var registry = new RoomRegistry();
 Console.WriteLine($"Realms: {string.Join(", ", realms.ListVisible().Select(r => r.Name))}");
@@ -23,14 +24,15 @@ var listeners = new[]
 {
     new UdpListener("NameServer", 5058, new NameServerHandler($"{config.AdvertisedHost}:5055", secret, accounts)),
     new UdpListener("MasterServer", 5055, new MasterServerHandler($"{config.AdvertisedHost}:5056", secret, registry, config.AllowAnonymousLan, accounts, realms)),
-    new UdpListener("GameServer", 5056, new GameServerHandler(secret, registry, config.AllowAnonymousLan, accounts, realms)),
+    new UdpListener("GameServer", 5056, new GameServerHandler(secret, registry, config.AllowAnonymousLan, accounts, realms, motd)),
 };
 
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
 // Console admin command loop on a background thread (its own context for thread-safety).
-var processor = new ConsoleCommandProcessor(new AccountService(config.Database.CreateContext()));
+var processor = new ConsoleCommandProcessor(new AccountService(config.Database.CreateContext()),
+                                            new MotdService(config.Database.CreateContext()));
 var consoleThread = new Thread(() =>
 {
     Console.WriteLine("console ready — type 'help'.");
