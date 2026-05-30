@@ -1,0 +1,19 @@
+# --- Game-derived material: NEVER commit (analysis-only, local) ---
+decompiled/
+captures/
+*.dll
+*.exe
+asset-dumps/
+**/Black Ice_Data/**
+
+# --- Build / tooling ---
+bin/
+obj/
+*.user
+.vs/
+artifacts/
+
+# --- Python capture munging ---
+__pycache__/
+*.pyc
+.venv/
