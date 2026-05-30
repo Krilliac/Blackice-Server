@@ -23,5 +23,17 @@ public static class Oracle
     /// <summary>Parses a full message (request/response/event) using the real Photon codec.</summary>
     public static object DeserializeMessage(byte[] bytes) => Protocol.DeserializeMessage(new StreamBuffer(bytes));
 
+    /// <summary>Serializes an operation-request body with no leading GpType byte ([op][table]) — the wire form.</summary>
+    public static byte[] SerializeRequestBody(byte op, Dictionary<byte, object> parameters)
+    {
+        var sb = new StreamBuffer(64);
+        Protocol.SerializeOperationRequest(sb, op, parameters, setType: false);
+        return sb.ToArray();
+    }
+
+    /// <summary>Parses an operation-request body ([op][table]) using the real Photon codec.</summary>
+    public static ExitGames.Client.Photon.OperationRequest DeserializeRequestBody(byte[] body)
+        => Protocol.DeserializeOperationRequest(new StreamBuffer(body));
+
     public static string Hex(byte[] b) => BitConverter.ToString(b);
 }
