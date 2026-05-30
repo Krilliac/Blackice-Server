@@ -37,6 +37,23 @@ public sealed class GpBinaryWriter
             case byte[] ba: _buf.Add(GpType.ByteArray); WriteUVarInt((uint)ba.Length); _buf.AddRange(ba); break;
             case int[] ia: _buf.Add(GpType.IntArray); WriteIntArrayBody(ia); break;
             case object[] oa: _buf.Add(GpType.ObjectArray); WriteObjectArrayBody(oa); break;
+            case PhotonCustomData custom:
+                // Symmetric with GpBinaryReader.ReadCustom: registered custom types in the slim code
+                // range (0..100, e.g. PUN Vector3=86, DamagePacket=68) are emitted as the packed type
+                // byte (128 + code) followed by [length varint][bytes]. Larger codes use the explicit
+                // Custom (19) form: [19][code][length varint][bytes].
+                if (custom.Code <= 100)
+                {
+                    _buf.Add((byte)(128 + custom.Code));
+                }
+                else
+                {
+                    _buf.Add(GpType.Custom);
+                    _buf.Add(custom.Code);
+                }
+                WriteUVarInt((uint)custom.Data.Length);
+                _buf.AddRange(custom.Data);
+                break;
             case System.Collections.IDictionary dict: _buf.Add(GpType.Hashtable); WriteHashtableBody(dict); break;
             default: throw new NotSupportedException($"GpBinary v1.8 write not implemented for {value.GetType()}");
         }

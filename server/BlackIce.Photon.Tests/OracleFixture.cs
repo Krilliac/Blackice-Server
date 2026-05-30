@@ -7,6 +7,26 @@ public static class Oracle
 {
     private static readonly IProtocol Protocol = new Protocol18();
 
+    static Oracle()
+    {
+        // PUN registers its custom types (e.g. Vector3 = code 86) on the peer at runtime via
+        // PhotonPeer.RegisterType, which populates Protocol18's static custom-type table. The bare
+        // Photon3Unity3D.dll used as our oracle has none registered, so it would throw
+        // "Custom type not found" on a code it has never seen. We register a byte-passthrough for the
+        // codes our relay forwards so the oracle decodes our slim wire form exactly as the real client
+        // would. Serialize/deserialize are identity over the body bytes — same payload PhotonCustomData carries.
+        foreach (byte code in new byte[] { 86, 68 })
+            PhotonPeer.RegisterType(typeof(PassthroughCustom), code, PassthroughCustom.Serialize, PassthroughCustom.Deserialize);
+    }
+
+    /// <summary>Test-only stand-in for a registered Photon custom type: carries the raw body bytes verbatim.</summary>
+    private sealed class PassthroughCustom
+    {
+        public byte[] Data = System.Array.Empty<byte>();
+        public static byte[] Serialize(object o) => ((PassthroughCustom)o).Data;
+        public static object Deserialize(byte[] data) => new PassthroughCustom { Data = data };
+    }
+
     /// <summary>Serializes a single typed value (type byte + payload).</summary>
     public static byte[] Serialize(object value) => Protocol.Serialize(value);
 
