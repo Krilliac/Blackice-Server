@@ -42,6 +42,17 @@ internal static class ConnectRedirectPatch
         // Keep the game's FixedRegion (already set, e.g. "us"): a non-empty fixed region makes the
         // client authenticate directly on our Name Server instead of asking for a region list.
         if (string.IsNullOrEmpty(settings.FixedRegion)) settings.FixedRegion = "us";
+
+        // Send the real SteamID as the Photon UserId so the server can key a persistent account
+        // to it. Without this the server only sees a chosen character name.
+        try
+        {
+            var steamId = Steamworks.SteamUser.GetSteamID().m_SteamID.ToString();
+            PhotonNetwork.AuthValues = new Photon.Realtime.AuthenticationValues(steamId);
+            RedirectPlugin.Log.LogInfo($"Sending SteamID {steamId} as Photon UserId");
+        }
+        catch (System.Exception ex) { RedirectPlugin.Log.LogWarning($"SteamID unavailable: {ex.Message}"); }
+
         RedirectPlugin.Log.LogInfo($"Redirecting Photon connect -> {settings.Server}:{settings.Port} (region '{settings.FixedRegion}')");
     }
 }

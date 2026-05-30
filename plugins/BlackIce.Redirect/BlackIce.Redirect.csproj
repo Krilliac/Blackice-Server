@@ -14,6 +14,7 @@
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(GameManaged)\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="PhotonRealtime"><HintPath>$(GameManaged)\PhotonRealtime.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="PhotonUnityNetworking"><HintPath>$(GameManaged)\PhotonUnityNetworking.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="com.rlabrecque.steamworks.net"><HintPath>$(GameManaged)\com.rlabrecque.steamworks.net.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
 
   <!-- Auto-deploy the built plugin into the game's BepInEx plugins folder. -->
