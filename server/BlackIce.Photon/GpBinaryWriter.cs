@@ -36,6 +36,7 @@ public sealed class GpBinaryWriter
             case string str: _buf.Add(GpType.String); WriteStringBody(str); break;
             case byte[] ba: _buf.Add(GpType.ByteArray); WriteUVarInt((uint)ba.Length); _buf.AddRange(ba); break;
             case int[] ia: _buf.Add(GpType.IntArray); WriteIntArrayBody(ia); break;
+            case object[] oa: _buf.Add(GpType.ObjectArray); WriteObjectArrayBody(oa); break;
             case System.Collections.IDictionary dict: _buf.Add(GpType.Hashtable); WriteHashtableBody(dict); break;
             default: throw new NotSupportedException($"GpBinary v1.8 write not implemented for {value.GetType()}");
         }
@@ -53,6 +54,14 @@ public sealed class GpBinaryWriter
     {
         WriteUVarInt((uint)arr.Length);
         foreach (var n in arr) WriteUVarInt(EncodeZigZag32(n));
+    }
+
+    // A Photon ObjectArray: length, then each element as a typed value. PUN RPC argument lists
+    // arrive in this form, so relaying gameplay RPCs requires writing it back out symmetrically.
+    private void WriteObjectArrayBody(object[] arr)
+    {
+        WriteUVarInt((uint)arr.Length);
+        foreach (var item in arr) WriteTyped(item);
     }
 
     // A Photon Hashtable value: count, then each entry as [typed key][typed value]. Keys may be

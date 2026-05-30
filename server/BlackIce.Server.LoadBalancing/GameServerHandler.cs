@@ -6,6 +6,9 @@ using BlackIce.Server.Data;
 
 namespace BlackIce.Server.LoadBalancing;
 
+/// <summary>Per-peer in-room state stashed on PeerConnection.Tag once a peer joins a room.</summary>
+public sealed record PeerRoomState(string RoomName, int Actor);
+
 /// <summary>
 /// Photon Game Server role: re-authenticates via token, enters the actual room (CreateGame/JoinGame),
 /// assigns an actor number, and raises the Join event (255) — the in-room milestone.
@@ -16,6 +19,7 @@ public sealed class GameServerHandler : IOperationHandler
     private const byte OpRaiseEvent = 253, OpSetProperties = 252;
     private const byte PEventCode = 244, PData = 245;     // RaiseEvent: event code + data/CustomData
     private const byte EvJoin = 255;
+    private const byte EvLeave = 254;
     private const byte EvServerMessage = 199;             // our server->client message channel
     private const byte PunRpcEvent = 200;                 // PUN's RPC event code
     private const byte RpcMethodName = 3, RpcParams = 4;  // PUN RPC hashtable keys (method name / args)
@@ -50,7 +54,15 @@ public sealed class GameServerHandler : IOperationHandler
     }
 
     public void OnConnect(PeerConnection peer) { }
-    public void OnDisconnect(PeerConnection peer) { }
+
+    public void OnDisconnect(PeerConnection peer)
+    {
+        if (peer.Tag is not PeerRoomState state) return;
+        var session = _registry.Session(state.RoomName);
+        // Notify remaining actors that this actor left (event 254, ActorNr = leaver).
+        session.RelayFrom(state.Actor, new EventData(EvLeave, new() { { PActorNr, state.Actor } }));
+        session.Leave(state.Actor);
+    }
 
     public void OnOperationRequest(PeerConnection peer, OperationRequest request)
     {
@@ -65,19 +77,32 @@ public sealed class GameServerHandler : IOperationHandler
                 peer.SendResponse(response);
                 if (response.ReturnCode == 0)
                 {
-                    peer.Tag = request.Parameters.TryGetValue(PRoomName, out var rn) ? rn.ToString() : null;
-                    peer.RaiseEvent(join);
+                    var roomName = request.Parameters.TryGetValue(PRoomName, out var rn) ? rn.ToString()! : "room";
+                    var actor = join.Parameters.TryGetValue(PActorNr, out var an) && an is int ai ? ai : 0;
+                    peer.Tag = new PeerRoomState(roomName, actor);
+                    var session = _registry.Session(roomName);
+                    session.Join(actor, peer);
+                    session.RelayFrom(actor, join);   // tell already-present actors this actor arrived (255)
+                    peer.RaiseEvent(join);             // and give the newcomer its own join
                 }
                 break;
             case OpSetProperties:
-                peer.SendResponse(SetProperties(peer.Tag as string, request));
+                peer.SendResponse(SetProperties((peer.Tag as PeerRoomState)?.RoomName, request));
                 break;
             case OpRaiseEvent:
-                var reply = TryHandleChatCommand(peer.Tag as string, request);
-                if (reply is not null) peer.RaiseEvent(reply);   // command handled; not relayed
-                // NOTE: a non-command RaiseEvent (gameplay/RPC) is currently NOT relayed to other
-                // peers — Phase 2 relay is not built. We intentionally send no response here, which
-                // is what a real Photon server does for a fire-and-forget RaiseEvent.
+                var state = peer.Tag as PeerRoomState;
+                var reply = TryHandleChatCommand(state?.RoomName, request);
+                if (reply is not null)
+                {
+                    peer.RaiseEvent(reply);   // server command handled; not relayed
+                }
+                else if (state is not null
+                         && request.Parameters.TryGetValue(PEventCode, out var ecRaw) && ecRaw is byte ec
+                         && request.Parameters.TryGetValue(PData, out var data))
+                {
+                    // Not a server command: relay this gameplay event to the other actors in the room.
+                    _registry.Session(state.RoomName).RelayFrom(state.Actor, new EventData(ec, new() { { PData, data } }));
+                }
                 break;
             default:
                 // Any in-room op we don't implement yet. NOTE: a -2 here is NOT harmless — a live
