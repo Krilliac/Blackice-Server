@@ -21,25 +21,25 @@ public sealed class MasterServerHandler : IOperationHandler
     private readonly string _secret;
     private readonly RoomRegistry _registry;
     private readonly bool _allowAnonymousLan;
-    private readonly string? _testRoomName;
     private readonly AccountService? _accounts;
+    private readonly RealmService? _realms;
 
     /// <param name="allowAnonymousLan">
     /// When true, tokenless first-contact auth (the game's LAN mode) is accepted — but only from
     /// loopback/private-range peers. Defaults to false (secure): the full Name Server token is required.
     /// </param>
-    /// <param name="testRoomName">If set, this room is advertised in the lobby browser (an always-on room).</param>
     /// <param name="accounts">Account store for ban enforcement on the resolved SteamID (optional in tests).</param>
+    /// <param name="realms">Realm definitions advertised in the lobby browser (optional in tests).</param>
     public MasterServerHandler(string gameAddress, string secret, RoomRegistry registry,
-                               bool allowAnonymousLan = false, string? testRoomName = null,
-                               AccountService? accounts = null)
+                               bool allowAnonymousLan = false, AccountService? accounts = null,
+                               RealmService? realms = null)
     {
         _gameAddress = gameAddress;
         _secret = secret;
         _registry = registry;
         _allowAnonymousLan = allowAnonymousLan;
-        _testRoomName = testRoomName;
         _accounts = accounts;
+        _realms = realms;
     }
 
     public void OnConnect(PeerConnection peer) { }
@@ -96,27 +96,26 @@ public sealed class MasterServerHandler : IOperationHandler
     public OperationResponse JoinLobby(OperationRequest r) => new(OpJoinLobby, 0, null, new());
 
     /// <summary>
-    /// The lobby room list (event 230, param 222 = { roomName -> properties }). Advertises the
-    /// always-on test room so it appears in the in-game server browser as open and joinable.
+    /// The lobby room list (event 230, param 222 = { roomName -> properties }), built from all
+    /// enabled+visible realms. Each entry mixes well-known byte props with the custom string props
+    /// the in-game room-browser slot hard-casts (PVP:bool, HackDifficultyIncrease:int, Password:string);
+    /// omitting those makes the slot throw and the room silently fails to render.
     /// </summary>
     public EventData BuildGameListEvent()
     {
         var rooms = new Dictionary<string, object>();
-        if (_testRoomName is not null)
+        foreach (var realm in _realms?.ListVisible() ?? new List<Realm>())
         {
-            var room = _registry.GetOrCreate(_testRoomName);
-            // Mixed-key Hashtable: well-known byte props + the custom string props the in-game
-            // room-browser slot hard-casts (PVP:bool, HackDifficultyIncrease:int, Password:string).
-            // Omitting those makes the slot throw and the room silently fails to render.
-            rooms[_testRoomName] = new Dictionary<object, object>
+            int players = _registry.Find(realm.Name)?.ActorNumbers.Count ?? 0;
+            rooms[realm.Name] = new Dictionary<object, object>
             {
                 { RoomIsOpen, true },
                 { RoomIsVisible, true },
-                { RoomPlayerCount, (byte)room.ActorNumbers.Count },
-                { RoomMaxPlayers, (byte)8 },
-                { "PVP", false },
-                { "HackDifficultyIncrease", 0 },
-                { "Password", "" },
+                { RoomPlayerCount, (byte)players },
+                { RoomMaxPlayers, (byte)realm.MaxPlayers },
+                { "PVP", realm.Pvp },
+                { "HackDifficultyIncrease", realm.HackDifficultyIncrease },
+                { "Password", realm.Password },
             };
         }
         return new EventData(EvGameList, new() { { PGameListMap, rooms } });
