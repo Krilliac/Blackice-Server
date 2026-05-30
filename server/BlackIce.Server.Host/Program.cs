@@ -1,35 +1,51 @@
 using BlackIce.Server.Core;
+using BlackIce.Server.Data;
+using BlackIce.Server.Host;
 using BlackIce.Server.LoadBalancing;
 
-// Usage: BlackIce.Server.Host [advertisedHost]
-// advertisedHost is the address the server tells clients to use for the Master/Game hops
-// (must be reachable by the client). Defaults to 127.0.0.1 for local testing.
-var advertised = args.Length > 0 ? args[0] : "127.0.0.1";
-const string secret = "change-me-phase1";
+var config = ServerConfig.Load("blackice.server.json");
+if (args.Length > 0 && !args[0].StartsWith("--")) config.AdvertisedHost = args[0];
+if (args.Contains("--require-token")) config.AllowAnonymousLan = false;
+const string secret = "change-me-platform-sp1";
 
-// LAN mode: the game connects directly to the Master with no Name Server token. We accept that
-// only from loopback/private-range peers (enforced per-request). Disable for an internet-facing
-// deployment that should require the full Name Server token flow.
-bool allowAnonymousLan = !args.Contains("--require-token");
+using var db = config.Database.CreateContext();      // EnsureCreated runs here
+var accounts = new AccountService(db);
 
-// Always-on test room: advertised in the lobby browser and joinable. Its obviously-custom name
-// is your proof you're on this server and not Photon Cloud (no such room can exist on live).
-const string testRoomName = "[CUSTOM SERVER] Test Room";
+Console.WriteLine($"BlackIce.Server — DB {config.Database.Provider}, advertising {config.AdvertisedHost}");
+Console.WriteLine($"*** One-time bootstrap code (redeem in-game once available): {accounts.EnsureBootstrapCode()} ***");
 
 var registry = new RoomRegistry();
-registry.GetOrCreate(testRoomName);   // exists from startup (always on)
+registry.GetOrCreate(config.TestRoomName);
 
 var listeners = new[]
 {
-    new UdpListener("NameServer", 5058, new NameServerHandler($"{advertised}:5055", secret)),
-    new UdpListener("MasterServer", 5055, new MasterServerHandler($"{advertised}:5056", secret, registry, allowAnonymousLan, testRoomName)),
-    new UdpListener("GameServer", 5056, new GameServerHandler(secret, registry, allowAnonymousLan)),
+    new UdpListener("NameServer", 5058, new NameServerHandler($"{config.AdvertisedHost}:5055", secret, accounts)),
+    new UdpListener("MasterServer", 5055, new MasterServerHandler($"{config.AdvertisedHost}:5056", secret, registry, config.AllowAnonymousLan, config.TestRoomName, accounts)),
+    new UdpListener("GameServer", 5056, new GameServerHandler(secret, registry, config.AllowAnonymousLan, accounts)),
 };
 
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
-Console.WriteLine($"BlackIce.Server starting — advertising {advertised} (NS 5058 / Master 5055 / Game 5056)");
+// Console admin command loop on a background thread (its own context for thread-safety).
+var processor = new ConsoleCommandProcessor(new AccountService(config.Database.CreateContext()));
+var consoleThread = new Thread(() =>
+{
+    Console.WriteLine("console ready — type 'help'.");
+    string? line;
+    while (!cts.IsCancellationRequested && (line = Console.ReadLine()) != null)
+    {
+        try
+        {
+            var outp = processor.Execute(line);
+            if (!string.IsNullOrEmpty(outp)) Console.WriteLine(outp);
+        }
+        catch (Exception ex) { Console.Error.WriteLine($"command error: {ex.Message}"); }
+    }
+}) { IsBackground = true };
+consoleThread.Start();
+
+Console.WriteLine("Listening — NS 5058 / Master 5055 / Game 5056");
 try { await Task.WhenAll(listeners.Select(l => l.RunAsync(cts.Token))); }
 catch (OperationCanceledException) { }
 Console.WriteLine("BlackIce.Server stopped.");

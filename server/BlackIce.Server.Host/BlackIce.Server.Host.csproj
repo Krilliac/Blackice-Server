@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BlackIce.Server.LoadBalancing\BlackIce.Server.LoadBalancing.csproj" />
+    <ProjectReference Include="..\BlackIce.Server.Data\BlackIce.Server.Data.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

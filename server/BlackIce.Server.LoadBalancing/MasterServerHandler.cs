@@ -1,5 +1,6 @@
 using BlackIce.Photon;
 using BlackIce.Server.Core;
+using BlackIce.Server.Data;
 
 namespace BlackIce.Server.LoadBalancing;
 
@@ -21,20 +22,24 @@ public sealed class MasterServerHandler : IOperationHandler
     private readonly RoomRegistry _registry;
     private readonly bool _allowAnonymousLan;
     private readonly string? _testRoomName;
+    private readonly AccountService? _accounts;
 
     /// <param name="allowAnonymousLan">
     /// When true, tokenless first-contact auth (the game's LAN mode) is accepted — but only from
     /// loopback/private-range peers. Defaults to false (secure): the full Name Server token is required.
     /// </param>
     /// <param name="testRoomName">If set, this room is advertised in the lobby browser (an always-on room).</param>
+    /// <param name="accounts">Account store for ban enforcement on the resolved SteamID (optional in tests).</param>
     public MasterServerHandler(string gameAddress, string secret, RoomRegistry registry,
-                               bool allowAnonymousLan = false, string? testRoomName = null)
+                               bool allowAnonymousLan = false, string? testRoomName = null,
+                               AccountService? accounts = null)
     {
         _gameAddress = gameAddress;
         _secret = secret;
         _registry = registry;
         _allowAnonymousLan = allowAnonymousLan;
         _testRoomName = testRoomName;
+        _accounts = accounts;
     }
 
     public void OnConnect(PeerConnection peer) { }
@@ -64,11 +69,16 @@ public sealed class MasterServerHandler : IOperationHandler
 
     public OperationResponse Authenticate(OperationRequest r, bool allowAnonymous = false)
     {
-        // Full Name Server flow: a token is present and must validate.
+        // Full Name Server flow: a token is present and must validate. Recover the SteamID and
+        // reject banned accounts.
         if (r.Parameters.TryGetValue(PSecret, out var t) && t is string token)
-            return AuthToken.TryValidate(token, _secret, out _)
-                ? new OperationResponse(OpAuthenticate, 0, null, new())
-                : new OperationResponse(OpAuthenticate, -1, "Invalid token", new());
+        {
+            if (!AuthToken.TryValidate(token, _secret, out var steamId))
+                return new OperationResponse(OpAuthenticate, -1, "Invalid token", new());
+            if (_accounts?.Find(steamId)?.IsBanned == true)
+                return new OperationResponse(OpAuthenticate, -3, "Account banned", new());
+            return new OperationResponse(OpAuthenticate, 0, null, new());
+        }
 
         // LAN/direct flow (UseNameServer=false): no token issued. Only honored when explicitly
         // enabled AND the peer is on a trusted local network (checked by the caller).

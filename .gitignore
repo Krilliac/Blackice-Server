@@ -20,3 +20,9 @@ __pycache__/
 
 # --- Downloaded third-party tools ---
 third-party/
+
+# Runtime DB + generated server config
+*.db
+*.db-shm
+*.db-wal
+blackice.server.json

@@ -11,7 +11,7 @@ public class RoleHandlerTests
     [Fact]
     public void NameServer_authenticate_returns_master_address_token_userid()
     {
-        var ns = new NameServerHandler("127.0.0.1:5055", Secret);
+        var ns = new NameServerHandler("127.0.0.1:5055", Secret, TestAccounts.Create());
         var resp = ns.Authenticate(new OperationRequest(230, new() { { 220, "v1" }, { 210, "us/*" } }));
 
         Assert.Equal(0, resp.ReturnCode);
@@ -23,7 +23,7 @@ public class RoleHandlerTests
     [Fact]
     public void Token_minted_by_nameserver_validates_on_master()
     {
-        var ns = new NameServerHandler("127.0.0.1:5055", Secret);
+        var ns = new NameServerHandler("127.0.0.1:5055", Secret, TestAccounts.Create());
         var token = (string)ns.Authenticate(new OperationRequest(230, new())).Parameters[221];
 
         var master = new MasterServerHandler("127.0.0.1:5056", Secret, new RoomRegistry());

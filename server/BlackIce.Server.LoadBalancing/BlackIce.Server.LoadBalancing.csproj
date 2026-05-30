@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BlackIce.Server.Core\BlackIce.Server.Core.csproj" />
+    <ProjectReference Include="..\BlackIce.Server.Data\BlackIce.Server.Data.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

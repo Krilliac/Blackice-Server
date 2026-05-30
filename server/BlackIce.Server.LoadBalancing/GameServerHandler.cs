@@ -1,5 +1,6 @@
 using BlackIce.Photon;
 using BlackIce.Server.Core;
+using BlackIce.Server.Data;
 
 namespace BlackIce.Server.LoadBalancing;
 
@@ -17,16 +18,20 @@ public sealed class GameServerHandler : IOperationHandler
     private readonly string _secret;
     private readonly RoomRegistry _registry;
     private readonly bool _allowAnonymousLan;
+    private readonly AccountService? _accounts;
 
     /// <param name="allowAnonymousLan">
     /// When true, tokenless auth (LAN mode) is accepted from loopback/private-range peers only.
     /// Defaults to false (secure): a valid token from the Master/Name Server is required.
     /// </param>
-    public GameServerHandler(string secret, RoomRegistry registry, bool allowAnonymousLan = false)
+    /// <param name="accounts">Account store for ban enforcement on the resolved SteamID (optional in tests).</param>
+    public GameServerHandler(string secret, RoomRegistry registry, bool allowAnonymousLan = false,
+                             AccountService? accounts = null)
     {
         _secret = secret;
         _registry = registry;
         _allowAnonymousLan = allowAnonymousLan;
+        _accounts = accounts;
     }
 
     public void OnConnect(PeerConnection peer) { }
@@ -54,9 +59,13 @@ public sealed class GameServerHandler : IOperationHandler
     public OperationResponse Authenticate(OperationRequest r, bool allowAnonymous = false)
     {
         if (r.Parameters.TryGetValue(PSecret, out var t) && t is string token)
-            return AuthToken.TryValidate(token, _secret, out _)
-                ? new OperationResponse(OpAuthenticate, 0, null, new())
-                : new OperationResponse(OpAuthenticate, -1, "Invalid token", new());
+        {
+            if (!AuthToken.TryValidate(token, _secret, out var steamId))
+                return new OperationResponse(OpAuthenticate, -1, "Invalid token", new());
+            if (_accounts?.Find(steamId)?.IsBanned == true)
+                return new OperationResponse(OpAuthenticate, -3, "Account banned", new());
+            return new OperationResponse(OpAuthenticate, 0, null, new());
+        }
 
         return allowAnonymous
             ? new OperationResponse(OpAuthenticate, 0, null, new())
