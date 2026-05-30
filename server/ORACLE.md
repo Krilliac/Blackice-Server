@@ -28,3 +28,16 @@ Namespace: `ExitGames.Client.Photon`. Protocol: **GpBinaryV18** (`Protocol18 : I
 ## Crypto
 DH/encryption code lives in `ExitGames.Client.Photon.Encryption` — referenced for the Task 7
 spike.
+
+## Task 7 spike result — encryption IS required (Name Server path)
+- `LoadBalancingClient` calls `EstablishEncryption()` whenever connecting to the **Name Server**
+  (PhotonRealtime ~line 2017), regardless of AuthMode. So the full-Name-Server path requires
+  implementing Photon's DH key exchange + encrypted operations.
+- Algorithm is recoverable (managed): `DiffieHellmanCryptoProvider` (Photon3Unity3D ~11383)
+  uses `OakleyGroups.OakleyPrime768` (RFC 2409 Group 1) + `BigInteger.ModPow`; the managed
+  class can serve as the implementation reference AND test oracle.
+- `InitEncryption` is sent below the `SendOperation` layer, which is why the Phase 0 op-log
+  didn't show it.
+- Alternatives to full DH impl: (a) implement it (matches stock-client goal); (b) bypass via
+  the BepInEx mod (UseNameServer=false + AuthMode=AuthOnce to skip EstablishEncryption),
+  trading away the "no client changes beyond redirect" property.
