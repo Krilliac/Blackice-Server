@@ -1,3 +1,5 @@
+using System;
+using System.Collections;
 using BlackIce.Photon;
 using BlackIce.Server.Core;
 using BlackIce.Server.Data;
@@ -59,7 +61,15 @@ public sealed class GameServerHandler : IOperationHandler
             case OpJoinGame:
                 var (response, join) = EnterRoom(request, ExtractJoinPassword(request));
                 peer.SendResponse(response);
-                if (response.ReturnCode == 0) peer.RaiseEvent(join);
+                if (response.ReturnCode == 0)
+                {
+                    peer.Tag = request.Parameters.TryGetValue(PRoomName, out var rn) ? rn.ToString() : null;
+                    peer.RaiseEvent(join);
+                }
+                break;
+            case OpRaiseEvent:
+                var reply = TryHandleChatCommand(peer.Tag as string, request);
+                if (reply is not null) peer.RaiseEvent(reply);   // command handled; not relayed
                 break;
             default:
                 peer.SendResponse(new OperationResponse(request.OperationCode, -2, "Unknown operation", new()));
@@ -127,6 +137,31 @@ public sealed class GameServerHandler : IOperationHandler
     /// <summary>Builds a ServerMessage event: a server->client text line the BlackIce.Motd plugin renders.</summary>
     public static EventData ServerMessageEvent(string text) =>
         new(EvServerMessage, new() { { PData, text } });
+
+    /// <summary>
+    /// Inspects an inbound RaiseEvent (op 253). If it is a chat RPC whose text is a "/command",
+    /// returns the ServerMessage to send back and the caller must NOT relay it. Returns null for
+    /// non-commands (normal chat / other events) so future relay logic handles them.
+    /// </summary>
+    public EventData? TryHandleChatCommand(string? roomName, OperationRequest req)
+    {
+        if (req.OperationCode != OpRaiseEvent) return null;
+        if (!req.Parameters.TryGetValue(PEventCode, out var ec) || Convert.ToByte(ec) != PunRpcEvent) return null;
+        if (!req.Parameters.TryGetValue(PData, out var d) || d is not IDictionary rpc) return null;
+
+        var method = rpc.Contains(RpcMethodName) ? rpc[RpcMethodName] as string : null;
+        var args = rpc.Contains(RpcParams) ? rpc[RpcParams] as object[] : null;
+        var text = (args is { Length: > 0 } ? args[0] as string : null)?.Trim();
+        if (method != "ReceiveChatMessage" || string.IsNullOrEmpty(text) || text![0] != '/') return null;
+
+        if (text.Equals("/motd", StringComparison.OrdinalIgnoreCase))
+        {
+            var realm = roomName is not null ? _realms?.Get(roomName) : null;
+            var resolved = _motd?.Resolve(realm);
+            return ServerMessageEvent(string.IsNullOrWhiteSpace(resolved) ? "No MOTD set." : resolved!);
+        }
+        return ServerMessageEvent($"Unknown command: {text}");
+    }
 
     /// <summary>Reads a join password from the request's GameProperties hashtable, if present.</summary>
     private static string? ExtractJoinPassword(OperationRequest r)
