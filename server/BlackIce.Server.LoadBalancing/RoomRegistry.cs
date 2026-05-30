@@ -58,8 +58,15 @@ public sealed class Room
 public sealed class RoomRegistry
 {
     private readonly ConcurrentDictionary<string, Room> _rooms = new();
+    private readonly ConcurrentDictionary<string, RoomSession> _sessions = new();
 
     public Room GetOrCreate(string name) => _rooms.GetOrAdd(name, n => new Room { Name = n });
     public Room? Find(string name) => _rooms.TryGetValue(name, out var r) ? r : null;
     public IReadOnlyCollection<Room> All => (IReadOnlyCollection<Room>)_rooms.Values;
+
+    /// <summary>The relay session for a room, created on first use with the default (pass-through)
+    /// interceptor chain. Phase 2b swaps in a chain that includes authority interceptors.</summary>
+    public RoomSession Session(string name) =>
+        _sessions.GetOrAdd(name, n => new RoomSession(n, new InterceptorChain(
+            new IEventInterceptor[] { new PassthroughInterceptor() })));
 }
