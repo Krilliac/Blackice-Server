@@ -19,17 +19,20 @@ public sealed class GameServerHandler : IOperationHandler
     private readonly RoomRegistry _registry;
     private readonly bool _allowAnonymousLan;
     private readonly AccountService? _accounts;
+    private readonly RealmService? _realms;
 
     /// <param name="allowAnonymousLan">
     /// When true, tokenless auth (LAN mode) is accepted from loopback/private-range peers only.
     /// Defaults to false (secure): a valid token from the Master/Name Server is required.
     /// </param>
     /// <param name="accounts">Account store for ban enforcement on the resolved SteamID (optional in tests).</param>
+    /// <param name="realms">Realm definitions whose ruleset is applied on join (optional in tests).</param>
     public GameServerHandler(string secret, RoomRegistry registry, bool allowAnonymousLan = false,
-                             AccountService? accounts = null)
+                             AccountService? accounts = null, RealmService? realms = null)
     {
         _secret = secret;
         _registry = registry;
+        _realms = realms;
         _allowAnonymousLan = allowAnonymousLan;
         _accounts = accounts;
     }
@@ -46,9 +49,9 @@ public sealed class GameServerHandler : IOperationHandler
                 break;
             case OpCreateGame:
             case OpJoinGame:
-                var (response, join) = EnterRoom(request);
+                var (response, join) = EnterRoom(request, ExtractJoinPassword(request));
                 peer.SendResponse(response);
-                peer.RaiseEvent(join);
+                if (response.ReturnCode == 0) peer.RaiseEvent(join);
                 break;
             default:
                 peer.SendResponse(new OperationResponse(request.OperationCode, -2, "Unknown operation", new()));
@@ -72,16 +75,34 @@ public sealed class GameServerHandler : IOperationHandler
             : new OperationResponse(OpAuthenticate, -1, "Authentication token required", new());
     }
 
-    public (OperationResponse Response, EventData Join) EnterRoom(OperationRequest r)
+    public (OperationResponse Response, EventData Join) EnterRoom(OperationRequest r, string? joinPassword)
     {
         var name = r.Parameters.TryGetValue(PRoomName, out var n) ? n.ToString()! : "room";
+        var realm = _realms?.Get(name);
+
+        // When realms are configured, only known+enabled realms are joinable, and a locked
+        // realm requires the matching password. (No realms configured = open, for tests.)
+        if (_realms is not null && (realm is null || !realm.IsEnabled))
+            return (new OperationResponse(r.OperationCode, -4, "No such realm", new()), new EventData(EvJoin, new()));
+        if (realm is not null && realm.Password.Length > 0 && joinPassword != realm.Password)
+            return (new OperationResponse(r.OperationCode, -5, "Wrong password", new()), new EventData(EvJoin, new()));
+
         var room = _registry.GetOrCreate(name);
         int actor = room.AddActor();
+
+        // Stamp the realm ruleset into the room's game properties so the client sees it in-room.
+        var gameProps = new Dictionary<object, object>();
+        if (realm is not null)
+        {
+            gameProps["PVP"] = realm.Pvp;
+            gameProps["HackDifficultyIncrease"] = realm.HackDifficultyIncrease;
+            gameProps["Password"] = realm.Password;
+        }
 
         var response = new OperationResponse(r.OperationCode, 0, null, new()
         {
             { PActorNr, actor },
-            { PGameProperties, new Dictionary<byte, object>(room.Properties) },
+            { PGameProperties, gameProps },
             { PActorProperties, new Dictionary<byte, object>() },
         });
         var join = new EventData(EvJoin, new()
@@ -91,4 +112,10 @@ public sealed class GameServerHandler : IOperationHandler
         });
         return (response, join);
     }
+
+    /// <summary>Reads a join password from the request's GameProperties hashtable, if present.</summary>
+    private static string? ExtractJoinPassword(OperationRequest r)
+        => r.Parameters.TryGetValue(PGameProperties, out var gp)
+           && gp is System.Collections.IDictionary d && d.Contains("Password")
+            ? d["Password"]?.ToString() : null;
 }

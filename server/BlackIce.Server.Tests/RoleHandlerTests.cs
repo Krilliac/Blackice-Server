@@ -77,7 +77,7 @@ public class RoleHandlerTests
     {
         var registry = new RoomRegistry();
         var game = new GameServerHandler(Secret, registry);
-        var (resp, join) = game.EnterRoom(new OperationRequest(227, new() { { 255, "Room #1" } }));
+        var (resp, join) = game.EnterRoom(new OperationRequest(227, new() { { 255, "Room #1" } }), null);
 
         Assert.Equal(0, resp.ReturnCode);
         Assert.Equal(1, resp.Parameters[254]);     // first actor number
@@ -90,8 +90,8 @@ public class RoleHandlerTests
     {
         var registry = new RoomRegistry();
         var game = new GameServerHandler(Secret, registry);
-        game.EnterRoom(new OperationRequest(227, new() { { 255, "Room #1" } }));
-        var (_, join2) = game.EnterRoom(new OperationRequest(226, new() { { 255, "Room #1" } }));
+        game.EnterRoom(new OperationRequest(227, new() { { 255, "Room #1" } }), null);
+        var (_, join2) = game.EnterRoom(new OperationRequest(226, new() { { 255, "Room #1" } }), null);
 
         Assert.Equal(2, join2.Parameters[254]);
         Assert.Equal(new[] { 1, 2 }, (int[])join2.Parameters[252]);
