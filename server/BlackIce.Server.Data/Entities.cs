@@ -28,4 +28,6 @@ public class ServerState
     [Key] public int Id { get; set; } = 1;
     public string? BootstrapCode { get; set; }
     public bool BootstrapClaimed { get; set; }
+    /// <summary>Global Message of the Day shown to players on join. Null/empty = none.</summary>
+    public string? Motd { get; set; }
 }

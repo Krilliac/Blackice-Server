@@ -14,4 +14,6 @@ public class Realm
     public bool IsVisible { get; set; } = true;
     public bool IsEnabled { get; set; } = true;
     public string ExtraJson { get; set; } = "{}";     // future server-enforced rules (stored, not enforced)
+    /// <summary>Per-realm MOTD override. Null/empty = inherit the global MOTD.</summary>
+    public string? Motd { get; set; }
 }
