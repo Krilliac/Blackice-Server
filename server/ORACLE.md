@@ -58,3 +58,10 @@ auto-creates a persistent Account (+Profile) at level Player keyed by that Steam
 blackice.db). Bootstrap code printed on first start; console promote/ban/list working.
 Note: Steamworks.SteamUser.GetSteamID() throws "not initialized" inside the BepInEx plugin
 context — registry read is the reliable path.
+
+## Platform SP2 verified — 2026-05-30
+Live: 3 config realms (Co-op / PvP / Hardcore) seeded into SQLite on first run, advertised in
+the lobby GameList (event 230, param 222) with per-realm props, persisted across restarts. Client
+connected Name→Master→Game, requested the lobby (op 229), received the realm list without
+serialization error, and reached the Game server. Joining applies the realm ruleset; unknown
+realm → return -4, wrong password → -5.
