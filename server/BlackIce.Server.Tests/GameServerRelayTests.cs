@@ -140,4 +140,36 @@ public class GameServerRelayTests
                 && e.Parameters.TryGetValue(254, out var nr) && nr is int i && i == 2);
         }
     }
+
+    [Fact]
+    public void Unreliable_gameplay_event_is_relayed_unreliably()
+    {
+        var (h, _, db) = NewHandler();
+        using (db)
+        {
+            var a = Peer(out _); var b = PeerClassified(out var bRaised);
+            h.OnOperationRequest(a, Join());
+            h.OnOperationRequest(b, Join());
+            a.CurrentInboundUnreliable = true;
+            bRaised.Clear();
+
+            h.OnOperationRequest(a, new OperationRequest(253, new()
+            {
+                { 244, (byte)201 },
+                { 245, new Dictionary<object, object> { { (byte)0, 2001 } } },
+            }));
+
+            Assert.Single(bRaised);
+            Assert.True(bRaised[0].unreliable);
+        }
+    }
+
+    private static PeerConnection PeerClassified(out List<(EventData ev, bool unreliable)> raised)
+    {
+        var captured = new List<(EventData, bool)>();
+        raised = captured;
+        var p = new PeerConnection("GameServer", new IPEndPoint(IPAddress.Loopback, 0), new Null(), (_, _) => { });
+        p.OnRaisedClassified = (ev, unrel) => captured.Add((ev, unrel));
+        return p;
+    }
 }

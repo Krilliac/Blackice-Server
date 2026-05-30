@@ -56,7 +56,12 @@ public sealed class PeerConnection
                 Log.Info(_role, $"{Remote} eNet DISCONNECT received");
                 _handler.OnDisconnect(this);
             }
-            if (payload is not null) HandleAppPayload(payload);
+            if (payload is not null)
+            {
+                CurrentInboundUnreliable = cmd.CommandType == NCommand.SendUnreliable;
+                HandleAppPayload(payload);
+                CurrentInboundUnreliable = false;
+            }
         }
         if (control.Count > 0) _send(control, _enet.Challenge);
     }
@@ -157,6 +162,10 @@ public sealed class PeerConnection
 
     /// <summary>Test/diagnostic hook reporting each raised event AND whether it was sent unreliably.</summary>
     public System.Action<EventData, bool>? OnRaisedClassified { get; set; }
+
+    /// <summary>Delivery class of the operation currently being dispatched to the handler — set by the
+    /// transport as it unwraps each command so the handler can relay an event with matching semantics.</summary>
+    public bool CurrentInboundUnreliable { get; set; }
 
     public void RaiseEvent(EventData ev) => RaiseEvent(ev, unreliable: false);
 

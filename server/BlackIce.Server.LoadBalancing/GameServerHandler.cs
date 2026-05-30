@@ -101,7 +101,7 @@ public sealed class GameServerHandler : IOperationHandler
                          && request.Parameters.TryGetValue(PData, out var data))
                 {
                     // Not a server command: relay this gameplay event to the other actors in the room.
-                    _registry.Session(state.RoomName).RelayFrom(state.Actor, new EventData(ec, new() { { PData, data } }));
+                    _registry.Session(state.RoomName).RelayFrom(state.Actor, new EventData(ec, new() { { PData, data } }), peer.CurrentInboundUnreliable);
                 }
                 break;
             default:
