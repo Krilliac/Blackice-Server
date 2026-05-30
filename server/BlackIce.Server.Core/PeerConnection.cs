@@ -151,9 +151,14 @@ public sealed class PeerConnection
         SendRaw(WireMessage.Response(response));
     }
 
+    /// <summary>Test/diagnostic observation hook: when set, every raised event is also handed here
+    /// before being sent. Production leaves this null; relay tests use it to assert fan-out without a socket.</summary>
+    public System.Action<EventData>? OnRaised { get; set; }
+
     public void RaiseEvent(EventData ev)
     {
         Log.Info(_role, $"{Remote} -> raise {PhotonNames.Event(ev.Code)} [{PhotonNames.Params(ev.Parameters)}]");
+        OnRaised?.Invoke(ev);
         SendRaw(WireMessage.EventMessage(ev));
     }
 
