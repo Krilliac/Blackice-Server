@@ -36,4 +36,27 @@ public class ConsoleCommandProcessorTests
         var proc = new ConsoleCommandProcessor(new AccountService(db.Context));
         Assert.Contains("help", proc.Execute("frobnicate").ToLowerInvariant());
     }
+
+    [Fact]
+    public void Motd_sets_and_reads_global()
+    {
+        using var db = new TestDb();
+        var motd = new MotdService(db.Context);
+        var proc = new ConsoleCommandProcessor(new AccountService(db.Context), motd);
+        proc.Execute("motd Welcome to the server");
+        Assert.Equal("Welcome to the server", motd.GetGlobal());
+        Assert.Contains("Welcome to the server", proc.Execute("motd"));
+    }
+
+    [Fact]
+    public void Realmmotd_sets_named_realm()
+    {
+        using var db = new TestDb();
+        db.Context.Realms.Add(new Realm { Name = "pvp" });
+        db.Context.SaveChanges();
+        var motd = new MotdService(db.Context);
+        var proc = new ConsoleCommandProcessor(new AccountService(db.Context), motd);
+        Assert.Contains("pvp", proc.Execute("realmmotd pvp No mercy"));
+        Assert.Equal("No mercy", db.Context.Realms.Find("pvp")!.Motd);
+    }
 }

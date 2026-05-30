@@ -4,13 +4,24 @@ namespace BlackIce.Server.Data;
 public sealed class ConsoleCommandProcessor
 {
     private readonly AccountService _accounts;
-    public ConsoleCommandProcessor(AccountService accounts) => _accounts = accounts;
+    private readonly MotdService? _motd;
+
+    public ConsoleCommandProcessor(AccountService accounts, MotdService? motd = null)
+    {
+        _accounts = accounts;
+        _motd = motd;
+    }
 
     public string Execute(string line)
     {
-        var parts = line.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var trimmed = line.Trim();
+        var sp = trimmed.IndexOf(' ');
+        var cmd = (sp < 0 ? trimmed : trimmed[..sp]).ToLowerInvariant();
+        var rest = sp < 0 ? "" : trimmed[(sp + 1)..].Trim();
+        var parts = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0) return "";
-        switch (parts[0].ToLowerInvariant())
+
+        switch (cmd)
         {
             case "promote" or "demote" when parts.Length == 3 && int.TryParse(parts[2], out var lvl) && lvl is >= 0 and <= 3:
                 return _accounts.SetLevel(parts[1], (PlayerLevel)lvl)
@@ -24,13 +35,24 @@ public sealed class ConsoleCommandProcessor
                     $"{a.SteamId} {a.DisplayName} {a.Level}{(a.IsBanned ? " [BANNED]" : "")}"));
             case "code":
                 return $"bootstrap code: {_accounts.EnsureBootstrapCode()}";
+            case "motd" when _motd is not null && rest.Length == 0:
+                return _motd.GetGlobal() is { } m ? m : "(no MOTD set)";
+            case "motd" when _motd is not null:
+                _motd.SetGlobal(rest);
+                return $"global MOTD set: {rest}";
+            case "realmmotd" when _motd is not null && parts.Length >= 3:
+                var realmName = parts[1];
+                var text = trimmed[(trimmed.IndexOf(realmName, StringComparison.Ordinal) + realmName.Length)..].Trim();
+                return _motd.SetRealm(realmName, text)
+                    ? $"{realmName} MOTD set: {text}" : $"no such realm: {realmName}";
             case "help":
                 return Help;
             default:
-                return $"unknown command '{parts[0]}'. type 'help'.";
+                return $"unknown command '{cmd}'. type 'help'.";
         }
     }
 
     public const string Help =
-        "commands: promote <steamId> <0-3> | demote <steamId> <0-3> | ban <steamId> | unban <steamId> | list | code | help";
+        "commands: promote <steamId> <0-3> | demote <steamId> <0-3> | ban <steamId> | unban <steamId> | " +
+        "list | code | motd [text] | realmmotd <realm> <text> | help";
 }
