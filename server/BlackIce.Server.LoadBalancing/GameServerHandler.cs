@@ -156,7 +156,10 @@ public sealed class GameServerHandler : IOperationHandler
     public EventData? TryHandleChatCommand(string? roomName, OperationRequest req)
     {
         if (req.OperationCode != OpRaiseEvent) return null;
-        if (!req.Parameters.TryGetValue(PEventCode, out var ec) || Convert.ToByte(ec) != PunRpcEvent) return null;
+        // Event code comes off the wire from an untrusted peer; validate rather than coerce.
+        // A real PUN client always sends it as a GpBinary byte, so anything else (wrong type
+        // or out of byte range) is malformed and ignored — no exception on bad input.
+        if (!req.Parameters.TryGetValue(PEventCode, out var ec) || ec is not byte ecByte || ecByte != PunRpcEvent) return null;
         if (!req.Parameters.TryGetValue(PData, out var d) || d is not IDictionary rpc) return null;
 
         var method = rpc.Contains(RpcMethodName) ? rpc[RpcMethodName] as string : null;
