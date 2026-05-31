@@ -67,6 +67,13 @@ public sealed class RoomRegistry
     /// <summary>The relay session for a room, created on first use with the default (pass-through)
     /// interceptor chain. Phase 2b swaps in a chain that includes authority interceptors.</summary>
     public RoomSession Session(string name) =>
-        _sessions.GetOrAdd(name, n => new RoomSession(n, new InterceptorChain(
-            new IEventInterceptor[] { new PassthroughInterceptor() })));
+        _sessions.GetOrAdd(name, n => new RoomSession(n, new InterceptorChain(new IEventInterceptor[]
+        {
+            // Authority validators (Phase 2b) — detection-only: they log violations and always forward,
+            // so relay behavior is unchanged. Thresholds are generous to avoid false positives on legit
+            // play; enforcement (clamp/drop) is a later, live-tuned step.
+            new Authority.DamageValidationInterceptor(maxDamage: 100000f),
+            new Authority.MovementValidationInterceptor(maxUnitsPerSecond: 200f),
+            new PassthroughInterceptor(),
+        })));
 }
