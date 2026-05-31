@@ -23,12 +23,16 @@ words — do not paste decompiled source. See `NOTICE` and `SECURITY.md`.
 
 ```bash
 dotnet build server/BlackIce.Server.sln          # the server
-dotnet test  server/BlackIce.Server.sln           # ~85 xUnit tests
+dotnet test  server/BlackIce.Server.sln           # xUnit tests (191 run without the game DLL)
 dotnet build BlackIce.sln                          # everything (server + plugins + tools)
 ```
 
-- **Tests use the real `Photon3Unity3D.dll` as an interop oracle** (test-only reference +
-  reflection for internal types). Codec/transport changes must round-trip against it.
+- **The `Photon3Unity3D.dll` interop oracle is now optional.** It cross-checks our clean-room codec +
+  DH/AES against the real Photon implementation, so keep using it locally — but it no longer blocks
+  the build. The reference is conditional on the DLL existing (override its path with
+  `-p:PhotonOracleDll=<path>` or `PHOTON_ORACLE_DLL`); without it, the oracle-only tests are skipped
+  and the rest of the suite (transport, eNet sequencing, decode, server, data) still builds and runs.
+  Codec/transport changes must still round-trip against the oracle locally before merge.
 - Client plugins (`plugins/`) target `netstandard2.0` (BepInEx/Mono) and auto-deploy into
   the game's `BepInEx/plugins` on build.
 
@@ -46,8 +50,13 @@ Development is **phased**, and **each phase = its own spec → plan → build** 
 - **Conventional commits**, scoped: `feat(lb):`, `feat(data):`, `test(...):`, `fix(...):`,
   `docs:`, `security:`. (`lb` = LoadBalancing, `data` = EF Core layer.)
 - Professional naming/comments/structure throughout — this is community-facing code.
-- EF Core data layer currently uses `EnsureCreated` (migrations deferred); SQLite default,
-  Pomelo MySQL swappable via `blackice.server.json`. Use `/ef-migration` when adopting migrations.
+- EF Core data layer uses **migrations** on SQLite (committed under `BlackIce.Server.Data/Migrations`,
+  applied on startup via `AutoMigrate`); MySQL still uses `EnsureCreated` until provider-specific
+  migrations are added. SQLite default, Pomelo MySQL swappable. Add migrations with
+  `dotnet ef migrations add <Name> --project server/BlackIce.Server.Data`.
+- The host runs on the **.NET Generic Host** (DI + lifetime); listeners and the admin console are
+  `IHostedService`s. Config is `blackice.server.json` layered under `BLACKICE_*` env overrides and
+  validated at startup — see `docs/configuration.md`. Photon wire codes live in `PhotonCodes`.
 
 ## Gotchas
 
