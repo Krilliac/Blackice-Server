@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using BlackIce.Photon;
 using BlackIce.Server.Core;
@@ -8,7 +9,13 @@ namespace BlackIce.Server.LoadBalancing.Bots;
 /// Owns the live bots: reserves non-colliding actor numbers, spawns them into a room session, and
 /// drives their per-tick movement. Bot actors start at <see cref="BotActorBase"/> so their
 /// viewID blocks (actor*1000) never overlap real players' blocks. Tick is driven off the host's
-/// 1 Hz maintenance loop (single-threaded), so no locking is needed here.
+/// 1 Hz maintenance loop (the single-threaded Game listener thread).
+///
+/// All mutation of <c>_bots</c> and all spawn-relay (which touches every real peer's EnetPeer
+/// sequence state) MUST happen on that listener thread. A console-thread caller therefore uses
+/// <see cref="RequestSpawn"/>, which only enqueues; <see cref="Tick"/> drains the queue and performs
+/// the actual spawn on the listener thread. The synchronous <see cref="Spawn"/> remains for callers
+/// that are already on a single thread (tests).
 /// </summary>
 public sealed class BotManager
 {
@@ -17,7 +24,13 @@ public sealed class BotManager
 
     private int _nextBotActor = BotActorBase;
     private readonly List<(PlayerBot bot, RoomSession session, IBotBehavior behavior)> _bots = new();
+    private readonly ConcurrentQueue<(RoomSession session, BotIdentity identity, IBotBehavior? behavior)> _pending = new();
 
+    /// <summary>
+    /// Spawns a bot synchronously on the CALLING thread. Mutates <c>_bots</c> and relays the bot's
+    /// join/instantiate to every real peer, so the caller must be the listener thread (or a test on
+    /// its own single thread). Cross-thread callers (the console) must use <see cref="RequestSpawn"/>.
+    /// </summary>
     public PlayerBot Spawn(RoomSession session, BotIdentity identity, IBotBehavior? behavior = null)
     {
         var bot = new PlayerBot(_nextBotActor++, identity);
@@ -26,9 +39,21 @@ public sealed class BotManager
         return bot;
     }
 
-    /// <summary>Advances every bot one step and relays its new position (event 201, unreliable).</summary>
+    /// <summary>
+    /// Queues a bot spawn to run on the next <see cref="Tick"/> (i.e. on the listener thread). Safe
+    /// to call from any thread (e.g. the console). Does not touch <c>_bots</c>, the relay, or the
+    /// actor counter on the calling thread.
+    /// </summary>
+    public void RequestSpawn(RoomSession session, BotIdentity identity, IBotBehavior? behavior = null)
+        => _pending.Enqueue((session, identity, behavior));
+
+    /// <summary>Drains queued spawns then advances every bot one step and relays its new position
+    /// (event 201, unreliable). Runs entirely on the listener thread.</summary>
     public void Tick()
     {
+        while (_pending.TryDequeue(out var req))
+            Spawn(req.session, req.identity, req.behavior);   // perform the deferred spawn on this (listener) thread
+
         foreach (var (bot, session, behavior) in _bots)
         {
             var p = behavior.Tick();

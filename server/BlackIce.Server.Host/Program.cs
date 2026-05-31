@@ -83,15 +83,19 @@ var consoleThread = new Thread(() =>
     string? line;
     while (!cts.IsCancellationRequested && (line = Console.ReadLine()) != null)
     {
-        // 'bot <realm>' spawns a playerbot into a realm. Spawn only records the bot here; the bot's
-        // per-tick relay runs on the GameServer listener thread (via OnMaintenance), never this one.
+        // 'bot <realm>' queues a playerbot spawn into a realm. We must NOT spawn on this console
+        // thread: BotManager.Spawn mutates _bots and relays the bot's join/instantiate to every real
+        // peer (touching their EnetPeer sequence state), which only the GameServer listener thread
+        // may do. RequestSpawn enqueues; the actual spawn (and its relay) runs on the next listener
+        // maintenance tick. The actor number isn't known synchronously anymore — it's logged when the
+        // spawn runs on the listener thread.
         if (line.StartsWith("bot ", StringComparison.OrdinalIgnoreCase))
         {
             var realmName = line.Substring(4).Trim();
             registry.GetOrCreate(realmName);                 // ensure the room exists
             var session = registry.Session(realmName);
-            var bot = botManager.Spawn(session, botIdentities.Next());
-            Console.WriteLine($"spawned bot actor={bot.Actor} viewId={bot.ViewId} into \"{realmName}\" (session has {session.Count} real members)");
+            botManager.RequestSpawn(session, botIdentities.Next());
+            Console.WriteLine($"queued bot spawn for \"{realmName}\" (runs on next listener tick)");
             continue;
         }
         try

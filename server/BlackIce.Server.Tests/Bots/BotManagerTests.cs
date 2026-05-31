@@ -34,6 +34,25 @@ public class BotManagerTests
     }
 
     [Fact]
+    public void RequestSpawn_defers_actual_spawn_until_the_next_tick()
+    {
+        var session = Session();
+        var human = RealPeer(out var raised); session.Join(1, human);
+        var mgr = new BotManager();
+
+        // RequestSpawn must NOT touch the relay or _bots on the calling (console) thread.
+        mgr.RequestSpawn(session, new BotIdentityGenerator(seed: 1).Next());
+        Assert.Empty(raised);
+
+        // The deferred spawn runs on the listener thread when Tick() drains the queue: the bot's
+        // join/instantiate relay reaches the real member, proving the queued path spawns the bot.
+        mgr.Tick();
+        Assert.NotEmpty(raised);
+        // And the spawned bot then moves (201) on subsequent/same ticks.
+        Assert.Contains(raised, r => r.ev.Code == 201 && r.unreliable);
+    }
+
+    [Fact]
     public void Tick_relays_an_unreliable_position_event_for_the_bot()
     {
         var session = Session();
