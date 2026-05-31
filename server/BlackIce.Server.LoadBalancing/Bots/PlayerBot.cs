@@ -52,11 +52,14 @@ public sealed class PlayerBot
         }));
 
         // 3) Instantiate the avatar (202): prefab "Player", our viewID, cached so late joiners see it.
+        //    Key 6 is the server timestamp: PUN's NetworkInstantiate casts networkEvent[(byte)6] to
+        //    int unconditionally, so omitting it NREs the client and nothing spawns.
         session.RelayFrom(Actor, new EventData(EvInstantiate, new()
         {
             { PData, new Dictionary<object, object>
                 {
                     { (byte)0, "Player" },
+                    { (byte)6, System.Environment.TickCount },
                     { (byte)7, ViewId },
                 } },
         }));
@@ -69,7 +72,8 @@ public sealed class PlayerBot
                 {
                     { (byte)0, ViewId },
                     { (byte)3, "RefreshModel" },
-                    { (byte)4, System.Array.Empty<object>() },
+                    // PunRPC signature is RefreshModel(int playerViewID); an empty arg list never invokes it.
+                    { (byte)4, new object[] { ViewId } },
                 } },
         }));
     }

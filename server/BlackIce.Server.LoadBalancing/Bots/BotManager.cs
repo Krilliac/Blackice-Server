@@ -37,15 +37,19 @@ public sealed class BotManager
     }
 
     /// <summary>
-    /// Builds a minimal event-201 serialize batch moving the bot's avatar. The exact PUN serialize
-    /// sub-stream layout is verified against the real client (interop review) before this is trusted
-    /// live; the structure here mirrors the observed `[time, null, [viewId, false, null, pos, rot]]`.
+    /// Builds the event-201 serialize batch moving the bot's avatar. The client's
+    /// NetworkSyncPosition.OnPhotonSerializeView reads a FIXED field set with no bounds check, so the
+    /// per-view stream must carry every field the Player prefab's enabled body component emits or the
+    /// receiver throws IndexOutOfRangeException. After pos(Vec3) and rot(Quat) the confirmed body fields
+    /// (from a captured real event-201) are the SyncPlayerHP triplet + SyncHead pitch:
+    /// damageTaken, maxHealth, tempHP, headPitch. We carry only that single body component (no buff/weapon
+    /// tail) so we never invent fields we cannot verify.
     /// </summary>
     private static EventData BuildPositionEvent(int viewId, BotPositionUpdate p)
     {
         var pos = PunVector3(p.X, p.Y, p.Z);
         var rot = PunQuaternion(0, 0, 0, 1);
-        var view = new object[] { viewId, false, null!, pos, rot };
+        var view = new object[] { viewId, false, null!, pos, rot, 0f, 200f, 0f, 0f };
         var batch = new object[] { System.Environment.TickCount, null!, view };
         return new EventData(EvPosition, new() { { PData, batch } });
     }

@@ -15,17 +15,20 @@ public static class Oracle
         // "Custom type not found" on a code it has never seen. We register a byte-passthrough for the
         // codes our relay forwards so the oracle decodes our slim wire form exactly as the real client
         // would. Serialize/deserialize are identity over the body bytes — same payload PhotonCustomData carries.
-        foreach (byte code in new byte[] { 86, 68 })
-            PhotonPeer.RegisterType(typeof(PassthroughCustom), code, PassthroughCustom.Serialize, PassthroughCustom.Deserialize);
+        // Photon keys its managed-type table by Type, so each code needs a DISTINCT stand-in class —
+        // registering one class for several codes silently keeps only the first.
+        PhotonPeer.RegisterType(typeof(Passthrough86), 86, Passthrough86.Serialize, Passthrough86.Deserialize);
+        PhotonPeer.RegisterType(typeof(Passthrough68), 68, Passthrough68.Serialize, Passthrough68.Deserialize);
+        PhotonPeer.RegisterType(typeof(Passthrough81), 81, Passthrough81.Serialize, Passthrough81.Deserialize);
+        PhotonPeer.RegisterType(typeof(Passthrough67), 67, Passthrough67.Serialize, Passthrough67.Deserialize);
     }
 
-    /// <summary>Test-only stand-in for a registered Photon custom type: carries the raw body bytes verbatim.</summary>
-    private sealed class PassthroughCustom
-    {
-        public byte[] Data = System.Array.Empty<byte>();
-        public static byte[] Serialize(object o) => ((PassthroughCustom)o).Data;
-        public static object Deserialize(byte[] data) => new PassthroughCustom { Data = data };
-    }
+    // Test-only stand-ins for registered Photon custom types: each carries the raw body bytes verbatim.
+    // A distinct class per code is required because Photon's RegisterType keys by managed Type.
+    private sealed class Passthrough86 { public byte[] Data = System.Array.Empty<byte>(); public static byte[] Serialize(object o) => ((Passthrough86)o).Data; public static object Deserialize(byte[] d) => new Passthrough86 { Data = d }; }
+    private sealed class Passthrough68 { public byte[] Data = System.Array.Empty<byte>(); public static byte[] Serialize(object o) => ((Passthrough68)o).Data; public static object Deserialize(byte[] d) => new Passthrough68 { Data = d }; }
+    private sealed class Passthrough81 { public byte[] Data = System.Array.Empty<byte>(); public static byte[] Serialize(object o) => ((Passthrough81)o).Data; public static object Deserialize(byte[] d) => new Passthrough81 { Data = d }; }
+    private sealed class Passthrough67 { public byte[] Data = System.Array.Empty<byte>(); public static byte[] Serialize(object o) => ((Passthrough67)o).Data; public static object Deserialize(byte[] d) => new Passthrough67 { Data = d }; }
 
     /// <summary>Serializes a single typed value (type byte + payload).</summary>
     public static byte[] Serialize(object value) => Protocol.Serialize(value);
