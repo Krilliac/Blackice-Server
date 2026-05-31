@@ -33,6 +33,13 @@ public sealed class RoomSession
     private readonly List<int> _spawnOrder = new();
     private int _syntheticViewId = -1;     // monotonically decreasing keys for viewID-less spawns
 
+    // Per-actor set of spawn viewIDs already delivered to that actor (via a live 202 relay or a cache
+    // replay). The Join->Replay window means a newcomer can receive a live 202 for a viewID AND have
+    // that viewID in the cache; ReplayCacheTo consults this set so each viewID reaches an actor exactly
+    // once, regardless of how the live-202 / join / replay calls interleave. Cleared on Leave so a
+    // reconnecting actor renders the world afresh.
+    private readonly Dictionary<int, HashSet<int>> _deliveredSpawns = new();
+
     public string RoomName { get; }
 
     public RoomSession(string roomName, InterceptorChain chain)
@@ -41,7 +48,7 @@ public sealed class RoomSession
     }
 
     public void Join(int actor, PeerConnection peer) { lock (_gate) _members[actor] = peer; }
-    public void Leave(int actor) { lock (_gate) _members.Remove(actor); }
+    public void Leave(int actor) { lock (_gate) { _members.Remove(actor); _deliveredSpawns.Remove(actor); } }
     public int Count { get { lock (_gate) return _members.Count; } }
 
     /// <summary>Runs the interceptor chain over <paramref name="ev"/> and fans the verdict out to
@@ -55,12 +62,22 @@ public sealed class RoomSession
         lock (_gate)
         {
             // Maintain the room spawn cache under the same lock that guards membership.
-            if (verdict.Event is { Code: EvInstantiation }) CacheSpawn(verdict.Event);
+            int spawnKey = 0;
+            if (verdict.Event is { Code: EvInstantiation }) spawnKey = CacheSpawn(verdict.Event);
             else if (verdict.Event is { Code: EvDestroy }) EvictSpawn(verdict.Event);
 
             recipients = new List<PeerConnection>(_members.Count);
+            // When relaying a live 202, record its cache key as delivered to each recipient so a later
+            // ReplayCacheTo to that same actor won't re-send it (the Join->Replay double-spawn window).
+            // CacheSpawn returns the exact key it used (the viewID, or a synthetic key) so dedupe keys
+            // match what ReplayCacheTo iterates.
+            bool isSpawn = verdict.Event is { Code: EvInstantiation };
             foreach (var (actor, peer) in _members)
-                if (actor != senderActor) recipients.Add(peer);
+            {
+                if (actor == senderActor) continue;
+                recipients.Add(peer);
+                if (isSpawn) MarkDelivered(actor, spawnKey);
+            }
         }
 
         foreach (var peer in recipients)
@@ -85,18 +102,36 @@ public sealed class RoomSession
             if (!_members.TryGetValue(actor, out peer)) return;
             snapshot = new List<EventData>(_spawnOrder.Count);
             foreach (var key in _spawnOrder)
-                if (_spawnCache.TryGetValue(key, out var ev)) snapshot.Add(ev);
+            {
+                // Skip any spawn already delivered to this actor by a live 202 relay — otherwise the
+                // Join->Replay window would double-instantiate it. Mark the rest as delivered as we send.
+                if (IsDelivered(actor, key)) continue;
+                if (_spawnCache.TryGetValue(key, out var ev)) { snapshot.Add(ev); MarkDelivered(actor, key); }
+            }
         }
 
         foreach (var ev in snapshot) peer.RaiseEvent(ev);   // reliable: spawns must not be dropped
     }
 
-    /// <summary>Caches a 202 keyed by its viewID (latest wins, existing order preserved). Must hold <c>_gate</c>.</summary>
-    private void CacheSpawn(EventData ev)
+    /// <summary>Records that spawn <paramref name="key"/> has been delivered to <paramref name="actor"/>. Must hold <c>_gate</c>.</summary>
+    private void MarkDelivered(int actor, int key)
+    {
+        if (!_deliveredSpawns.TryGetValue(actor, out var set)) _deliveredSpawns[actor] = set = new HashSet<int>();
+        set.Add(key);
+    }
+
+    /// <summary>True if spawn <paramref name="key"/> was already delivered to <paramref name="actor"/>. Must hold <c>_gate</c>.</summary>
+    private bool IsDelivered(int actor, int key)
+        => _deliveredSpawns.TryGetValue(actor, out var set) && set.Contains(key);
+
+    /// <summary>Caches a 202 keyed by its viewID (latest wins, existing order preserved) and returns
+    /// the key it used (the viewID, or a synthetic key for viewID-less spawns). Must hold <c>_gate</c>.</summary>
+    private int CacheSpawn(EventData ev)
     {
         int key = TryReadViewId(ev, out var viewId) ? viewId : _syntheticViewId--;
         if (!_spawnCache.ContainsKey(key)) _spawnOrder.Add(key);
         _spawnCache[key] = ev;   // re-spawn / update of the same viewID replaces the prior entry
+        return key;
     }
 
     /// <summary>Evicts the cached spawn a 204 destroy refers to, so a despawned object is not replayed.

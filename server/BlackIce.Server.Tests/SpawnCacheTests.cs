@@ -137,6 +137,56 @@ public class SpawnCacheTests
     }
 
     [Fact]
+    public void Newcomer_gets_a_spawn_exactly_once_across_live_relay_and_replay()
+    {
+        // Reproduces the Join->Replay double-spawn window: a live 202 for a viewID is relayed to the
+        // now-member newcomer AND that same viewID is also in the cache, so a naive ReplayCacheTo would
+        // deliver it a second time -> double instantiate of one viewID on the client.
+        var session = NewSession();
+        var a = Peer(out _); session.Join(1, a);
+
+        session.RelayFrom(1, Spawn(viewId: 1001));        // actor 1 spawns; cached
+
+        var b = Peer(out var bRaised); session.Join(2, b);
+        session.RelayFrom(1, Spawn(viewId: 1001));        // a SECOND live relay of the SAME viewID reaches member 2
+        session.ReplayCacheTo(2);                         // replay must not re-deliver viewId 1001 to actor 2
+
+        Assert.Single(bRaised, e => e.Code == 202);       // exactly once total across live + replay
+    }
+
+    [Fact]
+    public void Cached_before_join_replays_to_newcomer_exactly_once()
+    {
+        var session = NewSession();
+        var a = Peer(out _); session.Join(1, a);
+
+        session.RelayFrom(1, Spawn(viewId: 1001));        // cached before actor 2 exists
+
+        var b = Peer(out var bRaised); session.Join(2, b);
+        session.ReplayCacheTo(2);
+
+        Assert.Single(bRaised, e => e.Code == 202);       // delivered once via replay
+    }
+
+    [Fact]
+    public void Delivered_set_is_cleared_on_leave_so_a_rejoin_gets_the_spawn_again()
+    {
+        var session = NewSession();
+        var a = Peer(out _); session.Join(1, a);
+        session.RelayFrom(1, Spawn(viewId: 1001));
+
+        var b = Peer(out var bRaised); session.Join(2, b);
+        session.ReplayCacheTo(2);
+        Assert.Single(bRaised, e => e.Code == 202);
+
+        // Actor 2 leaves and rejoins (e.g. reconnect): the fresh peer must receive the spawn again.
+        session.Leave(2);
+        var b2 = Peer(out var b2Raised); session.Join(2, b2);
+        session.ReplayCacheTo(2);
+        Assert.Single(b2Raised, e => e.Code == 202);
+    }
+
+    [Fact]
     public void Late_joiner_through_handler_receives_existing_spawns()
     {
         var db = new TestDb();
