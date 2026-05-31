@@ -10,6 +10,13 @@ namespace BlackIce.Photon.Transport;
 public sealed class EnetPeer
 {
     private static int _peerCounter;
+    // Guards the outgoing sequence dictionaries below. The relay is single-threaded by design (the
+    // Game listener thread), but a stray cross-thread send (a console command, a timer, a future
+    // code path) that corrupts these maps stamps a bad sequence number — which the client treats as
+    // an unacked reliable command and force-disconnects the live peer ~10s later. This lock is
+    // defense in depth so no caller can silently corrupt sequence state. It protects ONLY these two
+    // dictionaries; it intentionally does not change wire behavior.
+    private readonly object _seqLock = new();
     private readonly Dictionary<byte, int> _outgoingSeq = new();
     private readonly Dictionary<byte, int> _outgoingUnreliableSeq = new();
 
@@ -57,7 +64,10 @@ public sealed class EnetPeer
 
     /// <summary>Wraps an application payload ([0xF3]... message) as a reliable command on channel 0.</summary>
     public NCommand WrapReliable(byte[] payload, byte channel = 0)
-        => new(NCommand.SendReliable, channel, NCommand.FlagReliable, 4, NextSeq(channel), payload);
+    {
+        lock (_seqLock)
+            return new(NCommand.SendReliable, channel, NCommand.FlagReliable, 4, NextSeq(channel), payload);
+    }
 
     /// <summary>
     /// Wraps an application payload as an UNRELIABLE command (type 7) on the given channel. Stamps the
@@ -67,11 +77,14 @@ public sealed class EnetPeer
     /// </summary>
     public NCommand WrapUnreliable(byte[] payload, byte channel = 0)
     {
-        _outgoingUnreliableSeq.TryGetValue(channel, out int u);
-        u++;
-        _outgoingUnreliableSeq[channel] = u;
-        _outgoingSeq.TryGetValue(channel, out int reliableSoFar);
-        return new NCommand(NCommand.SendUnreliable, channel, 0, 4, reliableSoFar, payload) { UnreliableSequenceNumber = u };
+        lock (_seqLock)
+        {
+            _outgoingUnreliableSeq.TryGetValue(channel, out int u);
+            u++;
+            _outgoingUnreliableSeq[channel] = u;
+            _outgoingSeq.TryGetValue(channel, out int reliableSoFar);
+            return new NCommand(NCommand.SendUnreliable, channel, 0, 4, reliableSoFar, payload) { UnreliableSequenceNumber = u };
+        }
     }
 
     /// <summary>
@@ -80,13 +93,17 @@ public sealed class EnetPeer
     /// quiet before deciding it's dead. (The client also pings us on its own ~1s cadence.)
     /// </summary>
     public NCommand Ping()
-        => new(NCommand.Ping, 0xFF, NCommand.FlagReliable, 4, NextSeq(0xFF), Array.Empty<byte>());
+    {
+        lock (_seqLock)
+            return new(NCommand.Ping, 0xFF, NCommand.FlagReliable, 4, NextSeq(0xFF), Array.Empty<byte>());
+    }
 
     private NCommand VerifyConnect()
     {
         var payload = new byte[32];                       // client reads peerId then skips 30 bytes
         BinaryPrimitives.WriteInt16BigEndian(payload, PeerId);
-        return new NCommand(NCommand.VerifyConnect, 0xFF, NCommand.FlagReliable, 4, NextSeq(0xFF), payload);
+        lock (_seqLock)
+            return new NCommand(NCommand.VerifyConnect, 0xFF, NCommand.FlagReliable, 4, NextSeq(0xFF), payload);
     }
 
     private static NCommand Ack(NCommand acked, int sentTime)
@@ -97,6 +114,7 @@ public sealed class EnetPeer
         return new NCommand(NCommand.Acknowledge, acked.ChannelId, 0, 4, acked.ReliableSequenceNumber, payload);
     }
 
+    /// <summary>Returns the next reliable sequence for a channel. Callers must hold <c>_seqLock</c>.</summary>
     private int NextSeq(byte channel)
     {
         _outgoingSeq.TryGetValue(channel, out int n);

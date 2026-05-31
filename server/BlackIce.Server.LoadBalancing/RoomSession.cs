@@ -6,7 +6,10 @@ namespace BlackIce.Server.LoadBalancing;
 /// <summary>
 /// Per-room relay: holds the connected peers by actor number, runs the interceptor chain over an
 /// inbound event, and fans the resulting event(s) out to every OTHER actor in the room. Driven from
-/// the single-threaded UDP listener loop; a lock guards membership for safety against maintenance.
+/// the single-threaded UDP listener loop. The <c>_gate</c> lock guards ONLY the membership map and
+/// the spawn cache (snapshot under the lock, send outside it); outbound sends themselves are NOT
+/// serialized by <c>_gate</c> — cross-thread safety of a peer's sequence state relies on EnetPeer's
+/// own internal locking.
 /// </summary>
 public sealed class RoomSession
 {
