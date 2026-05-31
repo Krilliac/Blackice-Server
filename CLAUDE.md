@@ -8,7 +8,8 @@ anticheat). Precedents: OpenRA, TrinityCore. **Intended to be open-sourced (GPLv
 
 This repo is public-facing and must contain **only original code + our own protocol
 documentation**. The following are game-derived or secret and must **never** be committed
-(they are gitignored, and a PreToolUse leak-guard hook blocks force-adds / explicit refs):
+(they are gitignored — `.gitignore` is the leak guard, so a normal `git add`/`-A` will not
+stage them; never `git add -f` a path below, as that deliberately bypasses the guard):
 
 - `decompiled/`, `captures/`, `asset-dumps/`, `third-party/`, anything under `Black Ice_Data/`
 - Game binaries: `*.dll`, `*.exe`, `*.pdb`
@@ -59,7 +60,8 @@ Development is **phased**, and **each phase = its own spec → plan → build** 
 
 ## Claude Code automations in this repo (`.claude/`)
 
-- **Hooks** (`settings.json` + `hooks/`): PreToolUse leak-guard; PostToolUse `dotnet format`.
+- **Hooks** (`settings.json` + `hooks/`): PostToolUse `dotnet format`. (Leak protection is
+  `.gitignore` alone — the old PreToolUse leak-guard hook was removed as too false-positive-prone.)
 - **Subagents** (`agents/`): `security-reviewer`, `photon-interop-reviewer`.
 - **Skill** (`skills/ef-migration/`): user-invoked EF Core migration helper.
 - **MCP** (`.mcp.json`): `blackice-db` SQLite browser (requires `uv` — see file).
