@@ -24,6 +24,13 @@ public sealed class UdpListener
     private readonly IOperationHandler _handler;
     private readonly Dictionary<IPEndPoint, PeerConnection> _peers = new();
 
+    /// <summary>
+    /// Optional work to run once per maintenance pass, on this listener's single loop thread.
+    /// Lets the host drive thread-affine work (e.g. ticking playerbots, whose relay path mutates
+    /// the same EnetPeer send state this thread already touches) without introducing a data race.
+    /// </summary>
+    public System.Action? OnMaintenance { get; set; }
+
     public UdpListener(string name, int port, IOperationHandler handler)
     {
         _name = name;
@@ -74,13 +81,18 @@ public sealed class UdpListener
             if (now - peer.LastInboundUtc >= DeadTimeout) (dead ??= new()).Add(ep);
             else peer.MaybePing(now, PingQuietAfter);
         }
-        if (dead is null) return;
-        foreach (var ep in dead)
-        {
-            if (!_peers.Remove(ep, out var peer)) continue;
-            Log.Info(_name, $"evicting silent peer {ep} (no inbound for {DeadTimeout.TotalSeconds:F0}s+); {_peers.Count} remain");
-            peer.NotifyDisconnect();
-        }
+        if (dead is not null)
+            foreach (var ep in dead)
+            {
+                if (!_peers.Remove(ep, out var peer)) continue;
+                Log.Info(_name, $"evicting silent peer {ep} (no inbound for {DeadTimeout.TotalSeconds:F0}s+); {_peers.Count} remain");
+                peer.NotifyDisconnect();
+            }
+
+        // Run host-supplied work on this same single thread, after the peer bookkeeping above. A
+        // throwing hook (e.g. a bot bug) must never take the listener down, so swallow + log.
+        try { OnMaintenance?.Invoke(); }
+        catch (Exception ex) { Log.Exception(_name, "OnMaintenance hook threw", ex); }
     }
 
     private void Process(byte[] datagram, IPEndPoint from)

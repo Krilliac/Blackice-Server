@@ -2,6 +2,7 @@ using BlackIce.Server.Core;
 using BlackIce.Server.Data;
 using BlackIce.Server.Host;
 using BlackIce.Server.LoadBalancing;
+using BlackIce.Server.LoadBalancing.Bots;
 
 var config = ServerConfig.Load("blackice.server.json");
 if (args.Length > 0 && !args[0].StartsWith("--")) config.AdvertisedHost = args[0];
@@ -56,14 +57,19 @@ foreach (var r in config.Realms.Where(r => !string.IsNullOrWhiteSpace(r.Motd)))
     if (motd.SetRealm(r.Name, r.Motd)) Log.Info("HOST", $"realm MOTD from config: {r.Name} -> \"{r.Motd}\"");
 
 var registry = new RoomRegistry();
+var botManager = new BotManager();
+var botIdentities = new BotIdentityGenerator();
 Log.Info("HOST", $"Realms: {string.Join(", ", realms.ListVisible().Select(r => r.Name))}");
 
-var listeners = new[]
-{
-    new UdpListener("NameServer", 5058, new NameServerHandler($"{config.AdvertisedHost}:5055", secret, accounts)),
-    new UdpListener("MasterServer", 5055, new MasterServerHandler($"{config.AdvertisedHost}:5056", secret, registry, config.AllowAnonymousLan, accounts, realms)),
-    new UdpListener("GameServer", 5056, new GameServerHandler(secret, registry, config.AllowAnonymousLan, accounts, realms, motd)),
-};
+// The GameServer listener is held as a local so we can hook its maintenance pass. Ticking bots
+// here (rather than on a Timer/Task) keeps the bot relay path on the listener's single thread —
+// critical, since BotManager.Tick -> RelayFrom mutates the same EnetPeer send state this thread
+// already owns. NOTE: 1 Hz (maintenance cadence) gives coarse movement; finer cadence is a future tweak.
+var nameListener = new UdpListener("NameServer", 5058, new NameServerHandler($"{config.AdvertisedHost}:5055", secret, accounts));
+var masterListener = new UdpListener("MasterServer", 5055, new MasterServerHandler($"{config.AdvertisedHost}:5056", secret, registry, config.AllowAnonymousLan, accounts, realms));
+var gameListener = new UdpListener("GameServer", 5056, new GameServerHandler(secret, registry, config.AllowAnonymousLan, accounts, realms, motd));
+gameListener.OnMaintenance = () => botManager.Tick();
+var listeners = new[] { nameListener, masterListener, gameListener };
 
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
@@ -77,6 +83,17 @@ var consoleThread = new Thread(() =>
     string? line;
     while (!cts.IsCancellationRequested && (line = Console.ReadLine()) != null)
     {
+        // 'bot <realm>' spawns a playerbot into a realm. Spawn only records the bot here; the bot's
+        // per-tick relay runs on the GameServer listener thread (via OnMaintenance), never this one.
+        if (line.StartsWith("bot ", StringComparison.OrdinalIgnoreCase))
+        {
+            var realmName = line.Substring(4).Trim();
+            registry.GetOrCreate(realmName);                 // ensure the room exists
+            var session = registry.Session(realmName);
+            var bot = botManager.Spawn(session, botIdentities.Next());
+            Console.WriteLine($"spawned bot actor={bot.Actor} viewId={bot.ViewId} into \"{realmName}\" (session has {session.Count} real members)");
+            continue;
+        }
         try
         {
             var outp = processor.Execute(line);
