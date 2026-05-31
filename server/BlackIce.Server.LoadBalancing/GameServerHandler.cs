@@ -87,6 +87,7 @@ public sealed class GameServerHandler : IOperationHandler
                     session.Join(actor, peer);
                     session.RelayFrom(actor, join);   // tell already-present actors this actor arrived (255)
                     peer.RaiseEvent(join);             // and give the newcomer its own join
+                    session.ReplayCacheTo(actor);      // then replay cached spawns so it renders the existing world
                 }
                 break;
             case OpSetProperties:
