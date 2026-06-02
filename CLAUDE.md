@@ -61,11 +61,18 @@ Development is **phased**, and **each phase = its own spec → plan → build** 
 ## Gotchas
 
 - `curl` here needs `--ssl-no-revoke` (schannel revocation failure). NuGet/dotnet restore unaffected.
-- **SECURITY GATE:** the client mod currently sends the SteamID read from the registry,
-  which is **spoofable** — so privileged/admin actions stay console-only. Networked admin
-  must wait on Steam **game-server ticket** validation. The client-side ticket spike has
-  **passed** (a BepInEx plugin can mint a Steam-validated ticket); server-side validation
-  (`BeginAuthSession`) is the remaining piece.
+- **SECURITY GATE (now closed for verified peers):** identity is no longer trusted from the spoofable
+  registry SteamID alone. The Name Server validates a Steam **game-server ticket** (`BeginAuthSession`,
+  AppID 311800) for **public (non-LAN) peers** and mints a token carrying a signed `verified` claim;
+  public peers without a valid ticket **fail closed**. LAN/loopback keeps the anonymous *unverified* path
+  for dev. Admin/anti-cheat trust a SteamID's level **only when `PeerConnection.IsVerified`** — e.g. the
+  `MovementValidationInterceptor` exempts a player from speed/fly enforcement only if verified AND level ≥
+  `AnticheatOptions.AdminExemptLevel`. The real validator lives in the **optional** `BlackIce.Server.Steam`
+  project (Facepunch.Steamworks); the default build uses `NullSteamTicketValidator` (Steam-free, public
+  fails closed) so CI/tests need no Steam. Client side: `plugins/BlackIce.SteamAuth` mints + sends the
+  ticket (the spike `BlackIce.SteamTicketSpike` proved feasibility). Still pending before a public deploy:
+  the HMAC `secret` is a placeholder (move to config — `SECURITY.md`); networked `promote`/`ban` and
+  `/claim` are now *possible* but not yet built.
 
 ## Claude Code automations in this repo (`.claude/`)
 
